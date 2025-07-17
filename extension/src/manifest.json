@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "LLM Sync",
+  "version": "0.1.0",
+  "permissions": [
+    "tabs",
+    "storage",
+    "scripting",
+    "activeTab",
+    "clipboardRead",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "*://chatgpt.com/*",
+    "*://www.chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://grok.x.com/*",
+    "http://localhost:3000/*"
+  ],
+  "background": {
+    "service_worker": "src/background.ts"
+  },
+  "action": {
+    "default_popup": "src/popup/index.html"
+  },
+  "options_page": "src/options/index.html",
+  "content_scripts": [
+  {
+    "matches": [
+      "*://chatgpt.com/*",
+      "*://www.chatgpt.com/*",
+      "https://claude.ai/*",
+      "https://grok.x.com/*"
+    ],
+    "js": ["src/content-scripts/shared.ts"]
+  }
+]
+
+}
