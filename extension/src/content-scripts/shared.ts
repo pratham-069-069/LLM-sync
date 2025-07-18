@@ -1,138 +1,142 @@
-// extension/src/content-scripts/shared.ts
-console.log('🧩 ChatGPT-specific content script loaded on', location.href)
+console.log('🧩 ChatGPT-specific content script loaded on', location.href);
 
+// Check if an element is visible on the page
+const isVisible = (el: HTMLElement) => {
+  const style = window.getComputedStyle(el);
+  return (
+    style.display !== 'none' &&
+    style.visibility !== 'hidden' &&
+    style.opacity !== '0' &&
+    el.offsetParent !== null
+  );
+};
+
+// Wait for an element to appear and be visible
+const waitForElement = (selector: string, timeout = 10000) =>
+  new Promise<HTMLElement>((resolve, reject) => {
+    const el = document.querySelector<HTMLElement>(selector);
+    if (el && isVisible(el)) {
+      console.log(`✅ Element found immediately with selector: ${selector}`);
+      return resolve(el);
+    }
+    console.log(`⏳ Waiting for element with selector: ${selector}...`);
+    const obs = new MutationObserver(() => {
+      const found = document.querySelector<HTMLElement>(selector);
+      if (found && isVisible(found)) {
+        console.log(`✅ Element found with selector: ${selector}`);
+        obs.disconnect();
+        resolve(found);
+      }
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+    setTimeout(() => {
+      obs.disconnect();
+      console.warn(`⚠️ Timeout: Element ${selector} not found within ${timeout}ms`);
+      reject(new Error(`Visible element ${selector} not found within ${timeout}ms`));
+    }, timeout);
+  });
+
+// Listen for messages from the Chrome extension
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type !== 'INJECT_PROMPT') return
-  console.log('🧩 Injecting prompt into ChatGPT:', msg.prompt)
-
-  const waitForElement = (selector: string, timeout = 10000) =>
-    new Promise<HTMLElement>((resolve, reject) => {
-      const el = document.querySelector<HTMLElement>(selector)
-      if (el) return resolve(el)
-      const obs = new MutationObserver(() => {
-        const found = document.querySelector<HTMLElement>(selector)
-        if (found) {
-          obs.disconnect()
-          resolve(found)
-        }
-      })
-      obs.observe(document.body, { childList: true, subtree: true })
-      setTimeout(() => {
-        obs.disconnect()
-        reject(new Error(`Element ${selector} not found within ${timeout}ms`))
-      }, timeout)
-    })
-
-
+  if (msg.type !== 'INJECT_PROMPT') return;
+  console.log('🧩 Received INJECT_PROMPT message with prompt:', msg.prompt);
 
   const injectAndSend = async () => {
     try {
-      console.log('🧩 Step 1: Waiting for composer form…')
-      const form = await waitForElement('form[data-type="unified-composer"]')
-      console.log('✅ Found composer form')
+      // Step 1: Wait for the composer form
+      console.log('🧩 Step 1: Waiting for composer form...');
+      console.log('✅ Step 1: Composer form found');
 
-      console.log('🧩 Step 2: Locating text input…')
-      let inputField: HTMLElement | null = null
-      
-      // First try to find the visible contenteditable div (preferred)
-      inputField = form.querySelector<HTMLElement>(
-        'div[role="textbox"][contenteditable="true"]'
-      )
-      
-      // If not found, try textarea but make sure it's visible
-      if (!inputField) {
-        const textareas = form.querySelectorAll<HTMLTextAreaElement>('textarea')
-        for (const textarea of textareas) {
-          const style = window.getComputedStyle(textarea)
-          if (style.display !== 'none' && style.visibility !== 'hidden') {
-            inputField = textarea
-            break
+      // Step 2: Find the visible text input
+      console.log('🧩 Step 2: Locating text input...');
+      let inputField: HTMLElement | null = null;
+      const inputSelectors = [
+        '#prompt-textarea[contenteditable="true"]',
+        'div[contenteditable="true"].ProseMirror',
+        'textarea[data-testid="prompt-textarea"]:not([style*="display: none"])'
+      ];
+      for (const selector of inputSelectors) {
+        try {
+          console.log(`Trying selector: ${selector}`);
+          inputField = await waitForElement(selector, 2000); // 2s timeout per selector
+          if (inputField) {
+            console.log(`✅ Found text input with selector: ${selector}`);
+            break;
           }
+        } catch (err) {
+          console.log(`Selector ${selector} not found within timeout`);
         }
       }
-
       if (!inputField) {
-        throw new Error('Visible textbox not found inside composer form')
+        throw new Error('No visible text input found after trying all selectors');
       }
-      console.log('✅ Found textbox:', inputField)
 
-      // FIXED: Properly set the text content in the visible input
-      inputField.focus()
-      
+      // Step 3: Focus and clear the text input
+      console.log('🧩 Step 3: Focusing and clearing text input...');
+      inputField.focus();
       if (inputField.tagName === 'TEXTAREA') {
-        // For textarea elements
-        (inputField as HTMLTextAreaElement).value = msg.prompt
-        inputField.dispatchEvent(new Event('input', { bubbles: true }))
-        inputField.dispatchEvent(new Event('change', { bubbles: true }))
+        const textarea = inputField as HTMLTextAreaElement;
+        console.log('Current textarea value before clearing:', textarea.value);
+        textarea.value = '';
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        textarea.dispatchEvent(new Event('change', { bubbles: true }));
       } else {
-        // For contenteditable div elements (more common in modern ChatGPT)
-        inputField.textContent = msg.prompt
-        inputField.dispatchEvent(new InputEvent('input', { 
-          bubbles: true, 
-          inputType: 'insertText', 
-          data: msg.prompt 
-        }))
-        // Also trigger keyup event to ensure ChatGPT detects the change
-        inputField.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }))
+        console.log('Current contenteditable content before clearing:', inputField.textContent);
+        inputField.textContent = '';
+        inputField.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContent' }));
       }
+      console.log('✅ Step 3: Text input cleared');
 
-      console.log('🧩 Step 3: Text inserted, waiting for send button to appear…')
-      
-      // Wait for the send button to be created by ChatGPT's UI
+      // Step 4: Simulate typing the prompt
+      console.log('🧩 Step 4: Simulating typing prompt:', msg.prompt);
+      for (const char of msg.prompt) {
+        if (inputField.tagName === 'TEXTAREA') {
+          const textarea = inputField as HTMLTextAreaElement;
+          textarea.value += char;
+          textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: char }));
+          console.log(`Typed character into textarea: ${char}, new value: ${textarea.value}`);
+        } else {
+          const textNode = document.createTextNode(char);
+          inputField.appendChild(textNode);
+          inputField.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: char }));
+          console.log(`Typed character into contenteditable: ${char}, new content: ${inputField.textContent}`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 10)); // Small delay to mimic typing
+      }
+      inputField.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+      console.log('✅ Step 4: Prompt fully typed');
+
+      // Step 5: Wait for and find the send button
+      console.log('🧩 Step 5: Waiting for send button...');
       const waitForSendButton = async (timeout = 5000) => {
-        const sendButtonSelectors = [
+        const selectors = [
           'button[data-testid="send-button"]',
           '#composer-submit-button',
-          'button[type="submit"]',
-          'form[data-type="unified-composer"] button:not([disabled])',
-          'button[aria-label*="Send"]',
-          'button svg[data-icon="send"]'
-        ]
-
-        return new Promise<HTMLButtonElement>((resolve, reject) => {
-          const checkForButton = () => {
-            for (const selector of sendButtonSelectors) {
-              const btn = form.querySelector<HTMLButtonElement>(selector)
-              if (btn && !btn.disabled && !btn.hasAttribute('aria-disabled')) {
-                console.log('✅ Found send button with selector:', selector)
-                resolve(btn)
-                return true
-              }
+          'button[aria-label="Send prompt"]:not(:disabled)',
+          'button[type="button"]:not(:disabled)'
+        ];
+        for (const selector of selectors) {
+          try {
+            console.log(`Trying send button selector: ${selector}`);
+            const btn = await waitForElement(selector, timeout / selectors.length);
+            if (btn && btn instanceof HTMLButtonElement && !btn.disabled && !btn.hasAttribute('aria-disabled')) {
+              console.log(`✅ Found enabled send button with selector: ${selector}`);
+              return btn;
+            } else {
+              console.log(`Button found with ${selector} but is disabled or not a button`);
             }
-            return false
+          } catch (err) {
+            console.log(`Send button not found with selector: ${selector}`);
           }
+        }
+        throw new Error('No enabled send button found after trying all selectors');
+      };
 
-          // Check immediately
-          if (checkForButton()) return
-
-          // Watch for button to appear
-          const observer = new MutationObserver(() => {
-            if (checkForButton()) {
-              observer.disconnect()
-            }
-          })
-          
-          observer.observe(form, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['disabled', 'aria-disabled']
-          })
-
-          setTimeout(() => {
-            observer.disconnect()
-            reject(new Error('Send button did not appear within timeout'))
-          }, timeout)
-        })
-      }
-
-      let sendButton: HTMLButtonElement
+      let sendButton: HTMLButtonElement | undefined;
       try {
-        sendButton = await waitForSendButton()
-        console.log('✅ Send button appeared!')
+        sendButton = await waitForSendButton();
       } catch (err) {
-        console.log('⚠️ Send button never appeared, trying Enter key fallback')
-        // Fallback: press Enter key
+        console.warn('⚠️ Step 5: Send button not found within timeout, falling back to Enter key');
         inputField.dispatchEvent(new KeyboardEvent('keydown', {
           bubbles: true,
           cancelable: true,
@@ -140,65 +144,35 @@ chrome.runtime.onMessage.addListener((msg) => {
           code: 'Enter',
           keyCode: 13,
           which: 13
-        }))
-        return
+        }));
+        console.log('✅ Step 5: Enter key pressed as fallback');
       }
 
-      console.log('🧩 Step 4: Clicking send button…')
-      sendButton.click()
+      // Step 6: Click the send button if found
+      if (sendButton) {
+        console.log('🧩 Step 6: Clicking send button...');
+        sendButton.click();
+        console.log('✅ Step 6: Send button clicked');
+      }
 
-      // Check if message was sent
-      setTimeout(() => {
-        let currentText = ''
-        if (inputField.tagName === 'TEXTAREA') {
-          currentText = (inputField as HTMLTextAreaElement).value
-        } else {
-          currentText = inputField.textContent || ''
-        }
-        
-        if (currentText.trim() === '') {
-          console.log('✅ Message sent successfully (input cleared)')
-        } else {
-          console.warn('⚠️ Input not cleared; send may have failed. Current text:', currentText)
-        }
-      }, 1000)
-
+      // Step 7: Check if the message was sent successfully
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s to allow UI update
+      console.log('🧩 Step 7: Checking if message was sent...');
+      let currentText = '';
+      if (inputField.tagName === 'TEXTAREA') {
+        currentText = (inputField as HTMLTextAreaElement).value;
+      } else {
+        currentText = inputField.textContent || '';
+      }
+      if (currentText.trim() === '') {
+        console.log('✅ Step 7: Message sent successfully (input cleared)');
+      } else {
+        console.warn('⚠️ Step 7: Input not cleared, send may have failed. Current text:', currentText);
+      }
     } catch (err) {
-      console.error('❌ Error during injectAndSend:', err)
-      console.log('🧩 Fallback: trying alternative method…')
-      
-      // Alternative fallback method
-      const fallbackField = document.querySelector<HTMLElement>(
-        'textarea, div[role="textbox"][contenteditable="true"]'
-      )
-      
-      if (fallbackField) {
-        fallbackField.focus()
-        
-        // Set text content
-        if (fallbackField.tagName === 'TEXTAREA') {
-          (fallbackField as HTMLTextAreaElement).value = msg.prompt
-        } else {
-          fallbackField.textContent = msg.prompt
-        }
-        
-        // Trigger events
-        fallbackField.dispatchEvent(new Event('input', { bubbles: true }))
-        
-        // Wait a bit then press Enter
-        setTimeout(() => {
-          fallbackField.dispatchEvent(new KeyboardEvent('keydown', {
-            bubbles: true,
-            cancelable: true,
-            key: 'Enter',
-            code: 'Enter',
-            keyCode: 13,
-            which: 13
-          }))
-        }, 300)
-      }
+      console.error('❌ Error during prompt injection:', (err instanceof Error ? err.message : String(err)));
     }
-  }
+  };
 
-  injectAndSend()
-})
+  injectAndSend();
+});
