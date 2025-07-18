@@ -36,6 +36,24 @@ const waitForElement = (selector: string, timeout = 10000) =>
     }, timeout);
   });
 
+// Set text content naturally (all at once)
+const setTextContent = (element: HTMLElement, text: string) => {
+  if (element.tagName === 'TEXTAREA') {
+    const textarea = element as HTMLTextAreaElement;
+    textarea.value = text;
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    textarea.dispatchEvent(new Event('change', { bubbles: true }));
+  } else {
+    // For contenteditable elements
+    element.textContent = text;
+    element.dispatchEvent(new InputEvent('input', { 
+      bubbles: true, 
+      inputType: 'insertText',
+      data: text 
+    }));
+  }
+};
+
 // Listen for messages from the Chrome extension
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type !== 'INJECT_PROMPT') return;
@@ -43,22 +61,21 @@ chrome.runtime.onMessage.addListener((msg) => {
 
   const injectAndSend = async () => {
     try {
-      // Step 1: Wait for the composer form
-      console.log('🧩 Step 1: Waiting for composer form...');
-      console.log('✅ Step 1: Composer form found');
-
-      // Step 2: Find the visible text input
-      console.log('🧩 Step 2: Locating text input...');
+      // Step 1: Find the visible text input
+      console.log('🧩 Step 1: Locating text input...');
       let inputField: HTMLElement | null = null;
       const inputSelectors = [
         '#prompt-textarea[contenteditable="true"]',
         'div[contenteditable="true"].ProseMirror',
-        'textarea[data-testid="prompt-textarea"]:not([style*="display: none"])'
+        'textarea[data-testid="prompt-textarea"]:not([style*="display: none"])',
+        'textarea[placeholder*="Message"]',
+        'div[contenteditable="true"][data-testid="prompt-textarea"]'
       ];
+      
       for (const selector of inputSelectors) {
         try {
           console.log(`Trying selector: ${selector}`);
-          inputField = await waitForElement(selector, 2000); // 2s timeout per selector
+          inputField = await waitForElement(selector, 2000);
           if (inputField) {
             console.log(`✅ Found text input with selector: ${selector}`);
             break;
@@ -67,54 +84,37 @@ chrome.runtime.onMessage.addListener((msg) => {
           console.log(`Selector ${selector} not found within timeout`);
         }
       }
+      
       if (!inputField) {
         throw new Error('No visible text input found after trying all selectors');
       }
 
-      // Step 3: Focus and clear the text input
-      console.log('🧩 Step 3: Focusing and clearing text input...');
+      // Step 2: Focus and set the text content
+      console.log('🧩 Step 2: Setting text content...');
       inputField.focus();
-      if (inputField.tagName === 'TEXTAREA') {
-        const textarea = inputField as HTMLTextAreaElement;
-        console.log('Current textarea value before clearing:', textarea.value);
-        textarea.value = '';
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        textarea.dispatchEvent(new Event('change', { bubbles: true }));
-      } else {
-        console.log('Current contenteditable content before clearing:', inputField.textContent);
-        inputField.textContent = '';
-        inputField.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContent' }));
-      }
-      console.log('✅ Step 3: Text input cleared');
+      
+      // Clear existing content first
+      setTextContent(inputField, '');
+      
+      // Small delay to ensure clearing is processed
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Set the new content
+      setTextContent(inputField, msg.prompt);
+      console.log('✅ Step 2: Text content set successfully');
 
-      // Step 4: Simulate typing the prompt
-      console.log('🧩 Step 4: Simulating typing prompt:', msg.prompt);
-      for (const char of msg.prompt) {
-        if (inputField.tagName === 'TEXTAREA') {
-          const textarea = inputField as HTMLTextAreaElement;
-          textarea.value += char;
-          textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: char }));
-          console.log(`Typed character into textarea: ${char}, new value: ${textarea.value}`);
-        } else {
-          const textNode = document.createTextNode(char);
-          inputField.appendChild(textNode);
-          inputField.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: char }));
-          console.log(`Typed character into contenteditable: ${char}, new content: ${inputField.textContent}`);
-        }
-        await new Promise(resolve => setTimeout(resolve, 10)); // Small delay to mimic typing
-      }
-      inputField.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-      console.log('✅ Step 4: Prompt fully typed');
-
-      // Step 5: Wait for and find the send button
-      console.log('🧩 Step 5: Waiting for send button...');
+      // Step 3: Wait for and find the send button
+      console.log('🧩 Step 3: Waiting for send button...');
       const waitForSendButton = async (timeout = 5000) => {
         const selectors = [
           'button[data-testid="send-button"]',
-          '#composer-submit-button',
-          'button[aria-label="Send prompt"]:not(:disabled)',
-          'button[type="button"]:not(:disabled)'
+          'button[aria-label="Send prompt"]',
+          'button[type="submit"]',
+          'button svg[data-testid="send-button"]',
+          'button:has(svg[data-testid="send-button"])',
+          'form button[type="button"]:not(:disabled)'
         ];
+        
         for (const selector of selectors) {
           try {
             console.log(`Trying send button selector: ${selector}`);
@@ -136,7 +136,9 @@ chrome.runtime.onMessage.addListener((msg) => {
       try {
         sendButton = await waitForSendButton();
       } catch (err) {
-        console.warn('⚠️ Step 5: Send button not found within timeout, falling back to Enter key');
+        console.warn('⚠️ Step 3: Send button not found within timeout, trying Enter key');
+        
+        // Try Enter key as fallback
         inputField.dispatchEvent(new KeyboardEvent('keydown', {
           bubbles: true,
           cancelable: true,
@@ -145,30 +147,43 @@ chrome.runtime.onMessage.addListener((msg) => {
           keyCode: 13,
           which: 13
         }));
-        console.log('✅ Step 5: Enter key pressed as fallback');
+        
+        inputField.dispatchEvent(new KeyboardEvent('keyup', {
+          bubbles: true,
+          cancelable: true,
+          key: 'Enter',
+          code: 'Enter',
+          keyCode: 13,
+          which: 13
+        }));
+        
+        console.log('✅ Step 3: Enter key pressed as fallback');
       }
 
-      // Step 6: Click the send button if found
+      // Step 4: Click the send button if found
       if (sendButton) {
-        console.log('🧩 Step 6: Clicking send button...');
+        console.log('🧩 Step 4: Clicking send button...');
         sendButton.click();
-        console.log('✅ Step 6: Send button clicked');
+        console.log('✅ Step 4: Send button clicked');
       }
 
-      // Step 7: Check if the message was sent successfully
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s to allow UI update
-      console.log('🧩 Step 7: Checking if message was sent...');
+      // Step 5: Verify the message was sent
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log('🧩 Step 5: Checking if message was sent...');
+      
       let currentText = '';
       if (inputField.tagName === 'TEXTAREA') {
         currentText = (inputField as HTMLTextAreaElement).value;
       } else {
         currentText = inputField.textContent || '';
       }
+      
       if (currentText.trim() === '') {
-        console.log('✅ Step 7: Message sent successfully (input cleared)');
+        console.log('✅ Step 5: Message sent successfully (input cleared)');
       } else {
-        console.warn('⚠️ Step 7: Input not cleared, send may have failed. Current text:', currentText);
+        console.warn('⚠️ Step 5: Input not cleared, send may have failed. Current text:', currentText);
       }
+      
     } catch (err) {
       console.error('❌ Error during prompt injection:', (err instanceof Error ? err.message : String(err)));
     }
