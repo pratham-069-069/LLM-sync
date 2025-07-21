@@ -9,189 +9,153 @@ interface Platform {
   tabId: number
 }
 
+// All possible platforms the user can chain
+const ALL_PLATFORMS = ['ChatGPT', 'Claude', 'Gemini', 'Grok', 'DeepSeek']
+
 function PopupApp() {
   const [availablePlatforms, setAvailablePlatforms] = useState<Platform[]>([])
-  const [selectedPlatform, setSelectedPlatform] = useState<string>('any')
   const [prompt, setPrompt] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  
+  // ✨ NEW: State for the chaining feature
+  const [chain, setChain] = useState<string[]>([])
+  const [finalResponse, setFinalResponse] = useState<string>('')
+  const [isChaining, setIsChaining] = useState<boolean>(false)
 
-  // Load available platforms on component mount
+
+  // Load available platforms and listen for chain completion
   useEffect(() => {
+    // Get currently open platforms
     chrome.runtime.sendMessage({ type: 'GET_AVAILABLE_PLATFORMS' }, (response) => {
       if (response && response.platforms) {
         setAvailablePlatforms(response.platforms)
       }
     })
-  }, [])
 
-  // Handler for sending prompt to selected platform
-  const handleSendPrompt = async () => {
+    // ✨ NEW: Listen for the final response from the background script
+    const messageListener = (msg: any) => {
+      if (msg.type === 'CHAIN_COMPLETE') {
+        setFinalResponse(msg.finalResponse)
+        setIsChaining(false)
+        setIsLoading(false)
+      }
+    };
+    chrome.runtime.onMessage.addListener(messageListener);
+
+    // Cleanup listener on component unmount
+    return () => {
+      chrome.runtime.onMessage.removeListener(messageListener);
+    };
+  }, [])
+  
+  // ✨ NEW: Handler for updating the chain selection
+  const handleChainToggle = (platformName: string) => {
+    setChain(prevChain => {
+      if (prevChain.includes(platformName)) {
+        // Remove from chain
+        return prevChain.filter(p => p !== platformName)
+      } else {
+        // Add to chain
+        return [...prevChain, platformName]
+      }
+    })
+  }
+  
+  // ✨ NEW: Handler for starting the chain prompt
+  const handleChainSend = () => {
     if (!prompt.trim()) {
-      alert('Please enter a prompt')
+      alert('Please enter a prompt.')
+      return
+    }
+    if (chain.length < 2) {
+      alert('Please select at least two platforms for the chain.')
       return
     }
 
     setIsLoading(true)
-    
-    try {
-      if (selectedPlatform === 'any') {
-        // Send to any available platform
-        chrome.runtime.sendMessage({ 
-          type: 'SEND_TO_ANY_AI', 
-          prompt: prompt 
-        })
-      } else if (selectedPlatform === 'chatgpt') {
-        // Legacy ChatGPT support
-        chrome.runtime.sendMessage({ 
-          type: 'SEND_TO_CHATGPT', 
-          prompt: prompt 
-        })
-      } else {
-        // Send to specific platform
-        chrome.runtime.sendMessage({ 
-          type: 'SEND_TO_PLATFORM', 
-          platform: selectedPlatform.toUpperCase(),
-          prompt: prompt 
-        })
-      }
-      
-      console.log(`🔹 Popup: sent prompt to ${selectedPlatform}`)
-      
-      // Clear the prompt after sending
-      setPrompt('')
-      
-      // Close popup after a short delay
-      setTimeout(() => window.close(), 500)
-      
-    } catch (error) {
-      console.error('Error sending prompt:', error)
-      alert('Failed to send prompt. Please try again.')
-    } finally {
-      setIsLoading(false)
-    }
-  }
+    setIsChaining(true)
+    setFinalResponse('') // Clear previous response
 
-  // Quick send buttons for common platforms
-  const quickSendButtons = [
-    { key: 'chatgpt', label: 'ChatGPT', color: 'bg-green-600 hover:bg-green-700' },
-    { key: 'claude', label: 'Claude', color: 'bg-orange-600 hover:bg-orange-700' },
-    { key: 'gemini', label: 'Gemini', color: 'bg-blue-600 hover:bg-blue-700' },
-    { key: 'grok', label: 'Grok', color: 'bg-purple-600 hover:bg-purple-700' },
-  ]
-
-  const handleQuickSend = (platform: string) => {
-    const userPrompt = window.prompt('Enter a prompt for ' + platform.toUpperCase())
-    if (!userPrompt) return
-
-    setIsLoading(true)
-    
-    if (platform === 'chatgpt') {
-      chrome.runtime.sendMessage({ type: 'SEND_TO_CHATGPT', prompt: userPrompt })
-    } else {
-      chrome.runtime.sendMessage({ 
-        type: 'SEND_TO_PLATFORM', 
-        platform: platform.toUpperCase(),
-        prompt: userPrompt 
-      })
-    }
-    
-    console.log(`🔹 Popup: quick sent to ${platform}`)
-    setTimeout(() => window.close(), 500)
+    chrome.runtime.sendMessage({
+      type: 'CHAIN_PROMPT',
+      prompt: prompt,
+      chain: chain
+    })
   }
 
   return (
-    <div className="w-80 p-4 font-sans bg-white">
+    <div className="w-96 p-4 font-sans bg-white text-gray-900">
       <div className="mb-4">
-        <h2 className="text-lg font-bold text-gray-900 mb-2">LLM Sync</h2>
+        <h2 className="text-lg font-bold">LLM Sync</h2>
         <p className="text-sm text-gray-600">
-          Send prompts to AI platforms
+          Orchestrate prompts across multiple AI platforms.
         </p>
       </div>
 
-      {/* Available Platforms Display */}
-      {availablePlatforms.length > 0 && (
-        <div className="mb-4">
-          <h3 className="text-sm font-medium text-gray-700 mb-2">Available Platforms:</h3>
-          <div className="flex flex-wrap gap-1">
-            {availablePlatforms.map((platform, index) => (
-              <span 
-                key={index}
-                className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs"
-              >
-                {platform.platform}
-              </span>
-            ))}
+      {/* Chain Prompting UI */}
+      <div className="border rounded-lg p-3 mb-4">
+        <h3 className="text-md font-bold mb-2">🤖 Chain Prompting</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          Send a prompt through a sequence of AIs. The output of one becomes the input for the next.
+        </p>
+
+        <div className="mb-3">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+                Prompt:
+            </label>
+            <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="e.g., Explain quantum computing like I'm five."
+                className="w-full p-2 border border-gray-300 rounded text-sm resize-none"
+                rows={3}
+            />
+        </div>
+
+        <div className="mb-3">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Execution Order (Select at least 2):</label>
+          <div className="flex flex-wrap gap-2">
+            {ALL_PLATFORMS.map(platformName => {
+              const isAvailable = availablePlatforms.some(p => p.platform === platformName);
+              const isSelected = chain.includes(platformName);
+              return (
+                <button
+                  key={platformName}
+                  onClick={() => handleChainToggle(platformName)}
+                  disabled={!isAvailable}
+                  className={`px-3 py-1 text-sm rounded-full border ${
+                    isSelected
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300'
+                  } ${
+                    !isAvailable
+                      ? 'opacity-50 cursor-not-allowed'
+                      : 'hover:bg-gray-100'
+                  }`}
+                >
+                  {isSelected ? `${chain.indexOf(platformName) + 1}. ` : ''}{platformName} {!isAvailable && '(Off)'}
+                </button>
+              )
+            })}
           </div>
         </div>
-      )}
-
-      {/* Advanced Mode */}
-      <div className="mb-4">
-        <div className="mb-3">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Target Platform:
-          </label>
-          <select 
-            value={selectedPlatform}
-            onChange={(e) => setSelectedPlatform(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded text-sm"
-          >
-            <option value="any">Any Available Platform</option>
-            <option value="chatgpt">ChatGPT</option>
-            <option value="claude">Claude</option>
-            <option value="gemini">Gemini</option>
-            <option value="grok">Grok</option>
-            <option value="deepseek">DeepSeek</option>
-          </select>
-        </div>
-
-        <div className="mb-3">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Prompt:
-          </label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Enter your prompt here..."
-            className="w-full p-2 border border-gray-300 rounded text-sm resize-none"
-            rows={3}
-          />
-        </div>
-
+        
         <button
-          onClick={handleSendPrompt}
-          disabled={isLoading || !prompt.trim()}
-          className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"
+          onClick={handleChainSend}
+          disabled={isLoading || chain.length < 2 || !prompt.trim()}
+          className="w-full px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"
         >
-          {isLoading ? 'Sending...' : `Send to ${selectedPlatform === 'any' ? 'Available Platform' : selectedPlatform.toUpperCase()}`}
+          {isChaining ? `Working... (${chain.join(' → ')})` : 'Start Chain'}
         </button>
-      </div>
 
-      {/* Quick Send Buttons */}
-      <div className="border-t pt-4">
-        <h3 className="text-sm font-medium text-gray-700 mb-3">Quick Send:</h3>
-        <div className="grid grid-cols-2 gap-2">
-          {quickSendButtons.map(({ key, label, color }) => (
-            <button
-              key={key}
-              onClick={() => handleQuickSend(key)}
-              disabled={isLoading}
-              className={`px-3 py-2 text-white rounded text-sm font-medium ${color} disabled:bg-gray-400 disabled:cursor-not-allowed`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {/* ✨ NEW: Display area for the final response */}
+        {finalResponse && (
+          <div className="mt-4 p-3 bg-gray-50 border rounded-lg">
+            <h4 className="text-sm font-bold mb-2">Final Output from {chain[chain.length - 1]}:</h4>
+            <p className="text-sm text-gray-800 whitespace-pre-wrap">{finalResponse}</p>
+          </div>
+        )}
       </div>
-
-      {/* Status */}
-      {availablePlatforms.length === 0 && (
-        <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
-          <p className="text-sm text-yellow-800">
-            No AI platform tabs detected. Please open ChatGPT, Claude, Gemini, Grok, or DeepSeek in a tab first.
-          </p>
-        </div>
-      )}
     </div>
   )
 }

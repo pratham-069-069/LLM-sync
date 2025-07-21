@@ -1,131 +1,127 @@
-// extension/src/background.ts
-
-// Immediately log when the service worker loads
-console.log('🛠️ LLM Sync background script loaded')
-
-// Install hook
-chrome.runtime.onInstalled.addListener(() => {
-  console.log('✅ LLM Sync background installed')
-})
-
-// Platform URL patterns
-const PLATFORM_PATTERNS = {
-  CHATGPT: ['*://chatgpt.com/*', '*://www.chatgpt.com/*'],
-  CLAUDE: ['https://claude.ai/*'],
-  GEMINI: ['https://gemini.google.com/*', 'https://bard.google.com/*'],
-  GROK: ['https://grok.com/*', 'https://x.com/*'],
-  DEEPSEEK: ['https://deepseek.com/*', 'https://chat.deepseek.com/*']
+// Define the Platform interface
+interface Platform {
+  platform: string;
+  url: string;
+  title: string;
+  tabId: number;
 }
 
-// Find tabs for a specific platform
-const findPlatformTabs = async (platform: keyof typeof PLATFORM_PATTERNS): Promise<chrome.tabs.Tab[]> => {
-  return new Promise((resolve) => {
-    chrome.tabs.query({ url: PLATFORM_PATTERNS[platform] }, resolve)
-  })
-}
+// Function to find all available AI platform tabs
+async function getAvailablePlatforms(): Promise<Platform[]> {
+  const tabs = await chrome.tabs.query({});
+  const platforms: Platform[] = [];
 
-// Find any AI platform tabs
-const findAnyAIPlatformTabs = async (): Promise<chrome.tabs.Tab[]> => {
-  const allPatterns = Object.values(PLATFORM_PATTERNS).flat()
-  return new Promise((resolve) => {
-    chrome.tabs.query({ url: allPatterns }, resolve)
-  })
-}
+  const platformPatterns = [
+    { name: 'ChatGPT', pattern: /chatgpt\.com/ },
+    { name: 'Claude', pattern: /claude\.ai/ },
+    { name: 'Gemini', pattern: /gemini\.google\.com/ },
+    { name: 'Grok', pattern: /grok\.com|x\.com/ },
+    { name: 'DeepSeek', pattern: /chat\.deepseek\.com/ },
+  ];
 
-// Get platform name from URL
-const getPlatformName = (url: string): string => {
-  if (url.includes('chatgpt.com')) return 'ChatGPT'
-  if (url.includes('claude.ai')) return 'Claude'
-  if (url.includes('gemini.google.com') || url.includes('bard.google.com')) return 'Gemini'
-  if (url.includes('grok.com') || url.includes('x.com')) return 'Grok'
-  if (url.includes('deepseek.com')) return 'DeepSeek'
-  return 'Unknown'
-}
-
-// Handle messages from the popup
-chrome.runtime.onMessage.addListener(async (msg, _sender, sendResponse) => {
-  console.log('🔔 BG got:', msg)
-
-  if (msg.type === 'SEND_TO_CHATGPT') {
-    // Legacy support - send to ChatGPT specifically
-    const tabs = await findPlatformTabs('CHATGPT')
-    if (tabs.length === 0) {
-      console.warn('⚠️ No ChatGPT tab found!')
-      return
+  for (const tab of tabs) {
+    if (tab.url && tab.id) {
+      for (const p of platformPatterns) {
+        if (p.pattern.test(tab.url)) {
+          platforms.push({ platform: p.name, url: tab.url, title: tab.title || 'Untitled', tabId: tab.id });
+          break; // Move to the next tab once a platform is identified
+        }
+      }
     }
-    
-    chrome.tabs.sendMessage(tabs[0].id!, {
-      type: 'INJECT_PROMPT',
-      prompt: msg.prompt
-    })
-    return
   }
+  return platforms;
+}
 
-  if (msg.type === 'SEND_TO_PLATFORM') {
-    // Send to specific platform
-    const platform = msg.platform as keyof typeof PLATFORM_PATTERNS
-    const tabs = await findPlatformTabs(platform)
-    
-    if (tabs.length === 0) {
-      console.warn(`⚠️ No ${platform} tab found!`)
-      return
-    }
-    
-    chrome.tabs.sendMessage(tabs[0].id!, {
-      type: 'INJECT_PROMPT',
-      prompt: msg.prompt
-    })
-    return
-  }
-
-  if (msg.type === 'SEND_TO_ANY_AI') {
-    // Send to any available AI platform
-    const tabs = await findAnyAIPlatformTabs()
-    
-    if (tabs.length === 0) {
-      console.warn('⚠️ No AI platform tabs found!')
-      return
-    }
-    
-    // Send to the first available tab
-    const tab = tabs[0]
-    const platformName = getPlatformName(tab.url || '')
-    console.log(`🚀 Sending to ${platformName} tab`)
-    
-    chrome.tabs.sendMessage(tab.id!, {
-      type: 'INJECT_PROMPT',
-      prompt: msg.prompt
-    })
-    return
-  }
-
+// Main message listener for the background script
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  // Handler to get a list of currently open LLM tabs
   if (msg.type === 'GET_AVAILABLE_PLATFORMS') {
-    // Return list of available platforms
-    const tabs = await findAnyAIPlatformTabs()
-    const platforms = tabs.map(tab => ({
-      platform: getPlatformName(tab.url || ''),
-      url: tab.url,
-      title: tab.title,
-      tabId: tab.id
-    }))
-    
-    sendResponse({ platforms })
-    return true // Keep the message channel open for async response
+    getAvailablePlatforms().then(platforms => {
+      sendResponse({ platforms });
+    });
+    return true; // Keep the message channel open for the async response
   }
 
-  // Legacy behavior - default to ChatGPT
-  if (msg.prompt) {
-    const tabs = await findPlatformTabs('CHATGPT')
-    if (tabs.length === 0) {
-      console.warn('⚠️ No ChatGPT tab found!')
-      return
-    }
-    
-    chrome.tabs.sendMessage(tabs[0].id!, {
-      type: 'INJECT_PROMPT',
-      prompt: msg.prompt
-    })
+  // Handler to send a prompt to a specific platform
+  if (msg.type === 'SEND_TO_PLATFORM' || msg.type === 'SEND_TO_CHATGPT') {
+    const platformName = msg.platform || 'CHATGPT';
+    console.log(`Background: Received SEND_TO_PLATFORM for ${platformName}`);
+    getAvailablePlatforms().then(platforms => {
+      const targetPlatform = platforms.find(p => p.platform.toUpperCase() === platformName.toUpperCase());
+      if (targetPlatform) {
+        chrome.tabs.sendMessage(targetPlatform.tabId, {
+          type: 'INJECT_PROMPT',
+          prompt: msg.prompt,
+        });
+      } else {
+        console.error(`Platform ${platformName} not found.`);
+      }
+    });
+  }
+  
+  // Handler to send a prompt to any available tab
+  if (msg.type === 'SEND_TO_ANY_AI') {
+      getAvailablePlatforms().then(platforms => {
+          if (platforms.length > 0) {
+              // Send to the first available platform
+              const targetTabId = platforms[0].tabId;
+              chrome.tabs.sendMessage(targetTabId, { type: 'INJECT_PROMPT', prompt: msg.prompt });
+          } else {
+              console.error('No AI platforms available to send prompt to.');
+          }
+      });
   }
 
-  return false
-})
+  // ✨ NEW: Handler for chaining prompts between platforms
+  if (msg.type === 'CHAIN_PROMPT') {
+    console.log('Background: Received CHAIN_PROMPT with chain:', msg.chain);
+    const chainAndExecute = async () => {
+        const available = await getAvailablePlatforms();
+        let currentPrompt = msg.prompt;
+
+        for (const platformName of msg.chain) {
+            const targetPlatform = available.find(p => p.platform.toUpperCase() === platformName.toUpperCase());
+
+            if (targetPlatform) {
+                try {
+                    console.log(`🔗 Chain step: Sending to ${platformName}...`);
+                    // 1. Inject the current prompt into the target platform
+                    await chrome.tabs.sendMessage(targetPlatform.tabId, { type: 'INJECT_PROMPT', prompt: currentPrompt });
+
+                    // 2. IMPORTANT: Wait for the LLM to generate a response.
+                    // This is a simple but unreliable delay. A more robust solution would involve
+                    // the content script monitoring the DOM for when the response is fully loaded.
+                    await new Promise(resolve => setTimeout(resolve, 15000)); // 15-second wait
+
+                    console.log(`🔗 Chain step: Reading response from ${platformName}...`);
+                    // 3. Read the new response from the target platform
+                    const response = await chrome.tabs.sendMessage(targetPlatform.tabId, { type: 'READ_LATEST_RESPONSE' });
+
+                    if (response.success && response.response) {
+                        currentPrompt = response.response; // This response becomes the prompt for the next step
+                        console.log(`🔗 Chain step: Got response from ${platformName}. New prompt is: "${currentPrompt.substring(0, 100)}..."`);
+                    } else {
+                        console.error(`Failed to read response from ${platformName}. Stopping chain. Error:`, response.error);
+                        // Optional: notify the UI about the failure
+                        return; // Stop the chain
+                    }
+                } catch (e) {
+                    console.error(`An error occurred during the chain with ${platformName}. Stopping chain. Error:`, e);
+                    // Optional: notify the UI about the failure
+                    return; // Stop the chain
+                }
+            } else {
+                console.warn(`Platform ${platformName} in chain is not available. Skipping.`);
+            }
+        }
+        console.log('✅ Chain finished. Final output:', currentPrompt);
+        // Here you can send the final output back to the popup/dashboard UI
+        // For example: chrome.runtime.sendMessage({ type: 'CHAIN_COMPLETE', finalResponse: currentPrompt });
+    };
+
+    chainAndExecute();
+    return true; // Indicates async execution
+  }
+});
+
+console.log('LLM Sync background script loaded.');

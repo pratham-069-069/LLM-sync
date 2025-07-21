@@ -58,324 +58,162 @@ const setTextContent = (element: HTMLElement, text: string, platform: string) =>
 
   if (element.tagName === 'TEXTAREA') {
     const textarea = element as HTMLTextAreaElement;
-    // Clear first
-    textarea.value = '';
+    textarea.value = ''; // Clear first
     textarea.focus();
-
-    // Set new value
-    textarea.value = text;
-
-    // Dispatch events
+    textarea.value = text; // Set new value
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
     textarea.dispatchEvent(new Event('change', { bubbles: true }));
 
-    // For Grok, also try paste event
     if (platform === 'Grok') {
       textarea.dispatchEvent(new Event('paste', { bubbles: true }));
-      // Trigger any potential React state updates
       const reactKey = Object.keys(textarea).find(key => key.startsWith('__reactInternalInstance'));
       if (reactKey) {
         textarea.dispatchEvent(new Event('keyup', { bubbles: true }));
       }
     }
   } else if (element.isContentEditable) {
-    // For contenteditable elements
     element.textContent = text;
-    element.dispatchEvent(new InputEvent('input', {
-      bubbles: true,
-      inputType: 'insertText',
-      data: text
-    }));
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
   } else {
-    // Fallback
     element.textContent = text;
     element.dispatchEvent(new Event('input', { bubbles: true }));
   }
-
-  // Additional events that some platforms might need
   element.dispatchEvent(new Event('keyup', { bubbles: true }));
 };
 
 // Get platform-specific selectors
 const getInputSelectors = (platform: string): string[] => {
   switch (platform) {
-    case 'ChatGPT':
-      return [
-        '#prompt-textarea[contenteditable="true"]',
-        'div[contenteditable="true"].ProseMirror',
-        'textarea[data-testid="prompt-textarea"]:not([style*="display: none"])',
-        'textarea[placeholder*="Message"]',
-        'div[contenteditable="true"][data-testid="prompt-textarea"]'
-      ];
-
-    case 'Claude':
-      return [
-        'div[contenteditable="true"][data-testid="chat-input"]',
-        'div[contenteditable="true"].ProseMirror',
-        'textarea[placeholder*="Talk to Claude"]',
-        'div[contenteditable="true"][placeholder*="Talk to Claude"]',
-        'div[contenteditable="true"][role="textbox"]'
-      ];
-
-    case 'DeepSeek': // ✨ FIXED
-      return [
-        'textarea[id="chat-input"]', // Most specific selector from screenshot
-        'textarea[placeholder="Message DeepSeek"]' // Fallback based on placeholder
-      ];
-
-    case 'Grok':
-      return [
-        'textarea[data-grok-form-interact-field="prompt"]',
-        'textarea[aria-label="Ask Grok anything"]',
-        'textarea[placeholder="What do you want to know?"]',
-        'form textarea:not([style*="display: none"])'
-      ];
-
-    case 'Gemini':
-      return [
-        'div.ql-editor[contenteditable="true"]',
-        'div[contenteditable="true"][aria-label="Enter a prompt here"]',
-        'div[contenteditable="true"][role="textbox"]'
-      ];
-
-    default:
-      return [
-        'div[contenteditable="true"]',
-        'textarea[placeholder*="message" i]',
-        'textarea[placeholder*="prompt" i]',
-        'div[contenteditable="true"][role="textbox"]'
-      ];
+    case 'ChatGPT': return ['#prompt-textarea'];
+    case 'Claude': return ['div[contenteditable="true"].ProseMirror'];
+    case 'DeepSeek': return ['textarea[id="chat-input"]', 'textarea[placeholder="Message DeepSeek"]'];
+    case 'Grok': return ['textarea[data-grok-form-interact-field="prompt"]'];
+    case 'Gemini': return ['div.ql-editor[contenteditable="true"]'];
+    default: return ['textarea', 'div[contenteditable="true"]'];
   }
 };
 
 const getSendButtonSelectors = (platform: string): string[] => {
   switch (platform) {
-    case 'ChatGPT':
-      return [
-        'button[data-testid="send-button"]',
-        'button[aria-label="Send prompt"]',
-        'button[type="submit"]',
-        'button:has(svg[data-testid="send-button"])'
-      ];
+    case 'ChatGPT': return ['button[data-testid="send-button"]'];
+    case 'Claude': return ['button[aria-label="Send Message"]'];
+    case 'DeepSeek': return ['div[role="button"][aria-disabled="false"]'];
+    case 'Grok': return ['button[aria-label="Submit"][type="submit"]'];
+    case 'Gemini': return ['button.send-arrow-button', 'button[aria-label="Send message"]'];
+    default: return ['button[type="submit"]'];
+  }
+};
 
-    case 'Claude':
-      return [
-        'button[aria-label="Send Message"]',
-        'button[data-testid="send-button"]',
-        'button[type="submit"]'
-      ];
-
-    case 'DeepSeek': // ✨ FIXED
-      return [
-        'div[role="button"][aria-disabled="false"]', // Specific selector from screenshot
-        'div[role="button"]:not([aria-disabled="true"])' // More general fallback
-      ];
-
-    case 'Grok':
-      return [
-        'button[aria-label="Submit"][type="submit"]',
-        'form button[type="submit"]:not(:disabled)',
-        'button[aria-label="Submit"]:not(:disabled)'
-      ];
-    
-    case 'Gemini':
-      return [
-        'button[aria-label="Send message"]',
-        'button[data-testid="send-button"]',
-        'button.send-arrow-button'
-      ];
-
-    default:
-      return [
-        'button[aria-label*="Send" i]',
-        'button[data-testid*="send"]',
-        'button[type="submit"]',
-        'form button:not(:disabled)'
-      ];
+// ✨ NEW: Selectors for the latest response from the assistant
+const getResponseSelectors = (platform: string): string[] => {
+  switch (platform) {
+    case 'ChatGPT': return ['div[data-message-author-role="assistant"] .prose'];
+    case 'Claude': return ['div[data-testid*="conversation-turn"] pre.prose']; // Claude uses <pre> for code blocks which can be a good target
+    case 'Gemini': return ['.model-response-text .markdown']; // Common pattern for Gemini
+    case 'DeepSeek': return ['.message-content.assistant']; // Educated guess
+    case 'Grok': return ['article[aria-label*="Grok"] div[dir="auto"]']; // Based on Grok's structure
+    default: return ['.assistant-response', '.model-output'];
   }
 };
 
 // Platform-specific send button handling
 const clickSendButton = (button: HTMLElement, platform: string) => {
   console.log(`🔧 Clicking send button for ${platform}`);
-
-  if (platform === 'Grok') {
-    // Grok might need special handling
-    button.focus();
-
-    // Try mousedown/mouseup sequence first
-    button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-    setTimeout(() => {
-      button.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-      button.click();
-    }, 50);
-  } else {
-    // Default click handling
-    button.click();
-  }
+  button.click();
 };
 
 // Try Enter key as fallback
-const tryEnterKey = (inputField: HTMLElement, platform: string) => {
+const tryEnterKey = (inputField: HTMLElement, platform:string) => {
   console.log(`🔧 Trying Enter key for ${platform}`);
-
-  const enterEvent = new KeyboardEvent('keydown', {
-    bubbles: true,
-    cancelable: true,
-    key: 'Enter',
-    code: 'Enter',
-    keyCode: 13,
-    which: 13
-  });
-
+  const enterEvent = new KeyboardEvent('keydown', { bubbles: true, key: 'Enter', code: 'Enter', keyCode: 13 });
   inputField.dispatchEvent(enterEvent);
-
-  // Also try keyup
-  inputField.dispatchEvent(new KeyboardEvent('keyup', {
-    bubbles: true,
-    cancelable: true,
-    key: 'Enter',
-    code: 'Enter',
-    keyCode: 13,
-    which: 13
-  }));
-
-  // For Grok, also try Ctrl+Enter
-  if (platform === 'Grok') {
-    inputField.dispatchEvent(new KeyboardEvent('keydown', {
-      bubbles: true,
-      cancelable: true,
-      key: 'Enter',
-      code: 'Enter',
-      keyCode: 13,
-      which: 13,
-      ctrlKey: true
-    }));
-  }
 };
 
-// Check if Chrome extension APIs are available
+// ✨ NEW: Function to read the latest response
+const readLatestResponse = async (platform: string): Promise<string> => {
+    console.log(`📖 Reading latest response from ${platform}...`);
+    const selectors = getResponseSelectors(platform);
+    let responseElements: NodeListOf<HTMLElement> | null = null;
+
+    for (const selector of selectors) {
+        responseElements = document.querySelectorAll<HTMLElement>(selector);
+        if (responseElements && responseElements.length > 0) {
+            console.log(`✅ Found ${responseElements.length} response elements with selector: ${selector}`);
+            break;
+        }
+    }
+
+    if (!responseElements || responseElements.length === 0) {
+        throw new Error(`No response elements found for ${platform}`);
+    }
+
+    // Get the last element found
+    const latestResponseElement = responseElements[responseElements.length - 1];
+    if (!latestResponseElement || !latestResponseElement.textContent) {
+        throw new Error('Could not extract text from the latest response element.');
+    }
+
+    console.log(`✅ Extracted response: "${latestResponseElement.textContent.substring(0, 100)}..."`);
+    return latestResponseElement.textContent.trim();
+};
+
+
+// Main message listener
 if (typeof chrome === 'undefined' || !chrome.runtime) {
   console.error('❌ Chrome extension APIs not available. This script must run as a content script.');
 } else {
-  // Listen for messages from the Chrome extension
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (msg.type !== 'INJECT_PROMPT') return;
-
     const platform = getPlatformName();
-    console.log(`🧩 Received INJECT_PROMPT message for ${platform} with prompt:`, msg.prompt);
 
-    const injectAndSend = async () => {
-      try {
-        // Step 1: Find the visible text input
-        console.log(`🧩 Step 1: Locating text input for ${platform}...`);
-        let inputField: HTMLElement | null = null;
-        const inputSelectors = getInputSelectors(platform);
-
-        for (const selector of inputSelectors) {
-          try {
-            console.log(`Trying selector: ${selector}`);
-            inputField = await waitForElement(selector, 2000);
-            if (inputField) {
-              console.log(`✅ Found text input with selector: ${selector}`);
-              break;
-            }
-          } catch (err) {
-            console.log(`Selector ${selector} not found within timeout`);
-          }
-        }
-
-        if (!inputField) {
-          throw new Error(`No visible text input found for ${platform} after trying all selectors`);
-        }
-
-        // Step 2: Focus and set the text content
-        console.log(`🧩 Step 2: Setting text content for ${platform}...`);
-        inputField.focus();
-
-        // Clear existing content first
-        setTextContent(inputField, '', platform);
-
-        // Small delay to ensure clearing is processed
-        await new Promise(resolve => setTimeout(resolve, 200));
-
-        // Set the new content
-        setTextContent(inputField, msg.prompt, platform);
-        console.log('✅ Step 2: Text content set successfully');
-
-        // Additional delay for Grok to process the input
-        if (platform === 'Grok') {
-          await new Promise(resolve => setTimeout(resolve, 300));
-        }
-
-        // Step 3: Wait for and find the send button
-        console.log(`🧩 Step 3: Waiting for send button for ${platform}...`);
-        const waitForSendButton = async (timeout = 5000) => {
-          const selectors = getSendButtonSelectors(platform);
-
-          for (const selector of selectors) {
-            try {
-              console.log(`Trying send button selector: ${selector}`);
-              const btn = await waitForElement(selector, timeout / selectors.length);
-              if (btn && (btn instanceof HTMLButtonElement || btn instanceof HTMLDivElement) && !btn.hasAttribute('disabled') && btn.getAttribute('aria-disabled') !== 'true') {
-                console.log(`✅ Found enabled send button with selector: ${selector}`);
-                return btn;
-              } else {
-                console.log(`Button found with ${selector} but is disabled or not a button`);
-              }
-            } catch (err) {
-              console.log(`Send button not found with selector: ${selector}`);
-            }
-          }
-          throw new Error(`No enabled send button found for ${platform} after trying all selectors`);
-        };
-
-        let sendButton: HTMLElement | undefined;
+    if (msg.type === 'INJECT_PROMPT') {
+      console.log(`🧩 Received INJECT_PROMPT for ${platform}`);
+      const injectAndSend = async () => {
         try {
-          sendButton = await waitForSendButton();
-        } catch (err) {
-          console.warn(`⚠️ Step 3: Send button not found for ${platform} within timeout, trying Enter key`);
-          tryEnterKey(inputField, platform);
-          console.log('✅ Step 3: Enter key pressed as fallback');
-        }
+          const inputSelectors = getInputSelectors(platform);
+          let inputField: HTMLElement | null = null;
+          for (const selector of inputSelectors) {
+            try {
+              inputField = await waitForElement(selector, 2000);
+              if (inputField) break;
+            } catch (err) { /* continue */ }
+          }
+          if (!inputField) throw new Error('No visible text input found.');
 
-        // Step 4: Click the send button if found
-        if (sendButton) {
-          console.log(`🧩 Step 4: Clicking send button for ${platform}...`);
-          clickSendButton(sendButton, platform);
-          console.log('✅ Step 4: Send button clicked');
-        }
+          setTextContent(inputField, msg.prompt, platform);
+          await new Promise(resolve => setTimeout(resolve, 300)); // Wait for UI to update
 
-        // Step 5: Verify the message was sent
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        console.log(`🧩 Step 5: Checking if message was sent for ${platform}...`);
+          const sendButtonSelectors = getSendButtonSelectors(platform);
+          let sendButton: HTMLElement | undefined;
+          for (const selector of sendButtonSelectors) {
+            try {
+              sendButton = await waitForElement(selector, 1000);
+              if (sendButton) break;
+            } catch (err) { /* continue */ }
+          }
 
-        let currentText = '';
-        if (inputField.tagName === 'TEXTAREA') {
-          currentText = (inputField as HTMLTextAreaElement).value;
-        } else {
-          currentText = inputField.textContent || '';
-        }
-
-        if (currentText.trim() === '' || currentText.trim() !== msg.prompt.trim()) {
-          console.log(`✅ Step 5: Message sent successfully for ${platform} (input cleared or changed)`);
+          if (sendButton) {
+            clickSendButton(sendButton, platform);
+          } else {
+            console.warn('Send button not found, trying Enter key.');
+            tryEnterKey(inputField, platform);
+          }
           sendResponse({ success: true });
-        } else {
-          console.warn(`⚠️ Step 5: Input not cleared for ${platform}, send may have failed. Current text:`, currentText);
-          sendResponse({ success: false, error: 'Message may not have been sent' });
+        } catch (err) {
+          console.error(`❌ Error during INJECT_PROMPT for ${platform}:`, err);
+          sendResponse({ success: false, error: err instanceof Error ? err.message : String(err) });
         }
-
-      } catch (err) {
-        console.error(`❌ Error during prompt injection for ${platform}:`, (err instanceof Error ? err.message : String(err)));
-        sendResponse({ success: false, error: err instanceof Error ? err.message : String(err) });
-      }
-    };
-
-    injectAndSend();
-
-    // Return true to indicate we will send a response asynchronously
-    return true;
+      };
+      injectAndSend();
+      return true; // Indicates async response
+    }
+    // ✨ NEW: Handler for reading the response
+    else if (msg.type === 'READ_LATEST_RESPONSE') {
+        console.log(`🧩 Received READ_LATEST_RESPONSE for ${platform}`);
+        readLatestResponse(platform)
+            .then(response => sendResponse({ success: true, response: response }))
+            .catch(err => sendResponse({ success: false, error: err.message }));
+        return true; // Indicates async response
+    }
   });
-
   console.log('🧩 Content script message listener registered successfully');
 }
