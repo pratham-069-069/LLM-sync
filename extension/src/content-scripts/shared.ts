@@ -72,8 +72,42 @@ const setTextContent = (element: HTMLElement, text: string, platform: string) =>
             }
         }
     } else if (element.isContentEditable) {
-        element.textContent = text;
-        element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+        // Clear existing content first
+        element.textContent = '';
+        element.focus();
+        
+        if (platform === 'Grok') {
+            // For Grok, simulate typing to trigger React state updates
+            element.textContent = text;
+            
+            // Trigger React-specific events
+            element.dispatchEvent(new InputEvent('beforeinput', { 
+                bubbles: true, 
+                inputType: 'insertText', 
+                data: text 
+            }));
+            element.dispatchEvent(new InputEvent('input', { 
+                bubbles: true, 
+                inputType: 'insertText', 
+                data: text 
+            }));
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+            
+            // Additional React triggers
+            element.dispatchEvent(new KeyboardEvent('keydown', { 
+                bubbles: true, 
+                key: 'End', 
+                code: 'End' 
+            }));
+            element.dispatchEvent(new KeyboardEvent('keyup', { 
+                bubbles: true, 
+                key: 'End', 
+                code: 'End' 
+            }));
+        } else {
+            element.textContent = text;
+            element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+        }
     } else {
         element.textContent = text;
         element.dispatchEvent(new Event('input', { bubbles: true }));
@@ -93,6 +127,13 @@ const getInputSelectors = (platform: string): string[] => {
             return ['textarea[id="chat-input"]', 'textarea[placeholder="Message DeepSeek"]'];
         case 'Grok':
             return [
+                // Updated selectors based on the DOM structure
+                'div[contenteditable="true"][data-testid="grok-composer-input"]',
+                'div[contenteditable="true"][aria-label*="Ask Grok"]',
+                'div[contenteditable="true"][role="textbox"]',
+                'div[contenteditable="true"].notranslate',
+                'div[contenteditable="true"][style*="white-space: pre-wrap"]',
+                // Fallback selectors
                 'textarea[data-grok-form-interact-field="prompt"]',
                 'textarea[aria-label="Ask Grok anything"]',
                 'form textarea:not([style*="display: none"])'
@@ -111,8 +152,15 @@ const getSendButtonSelectors = (platform: string): string[] => {
         case 'DeepSeek': return ['div[role="button"][aria-disabled="false"]'];
         case 'Grok':
             return [
-                'button[aria-label="Submit"][type="submit"]',
+                // Updated selectors for Grok send button
+                'button[data-testid="grok-send-button"]',
+                'button[aria-label="Send message"]',
+                'button[aria-label="Send"]',
+                'button[type="submit"]:not(:disabled)',
+                'div[role="button"][data-testid*="send"]',
+                // Look for buttons near the input area
                 'form button[type="submit"]:not(:disabled)',
+                'button[aria-label="Submit"][type="submit"]'
             ];
         case 'Gemini': return ['button.send-arrow-button', 'button[aria-label="Send message"]'];
         default: return ['button[type="submit"]'];
@@ -134,8 +182,19 @@ const getResponseSelectors = (platform: string): string[] => {
           'div.ds-markdown-block',                 // Alternative container
           'div[class*="ds-markdown-block"]'        // Fallback with partial match
         ];
-      case 'Grok': 
-        return ['article[role="article"] div[data-testid="tweetText"]'];
+              case 'Grok': 
+        return [
+          // Based on your DOM screenshot - target the actual content
+          'div[class*="break-words"] p[dir="auto"]',
+          'div[class*="prose"] p[dir="auto"]',
+          'p[dir="auto"][style*="white-space: pre-wrap"]',
+          'div[class*="message-bubble"] p',
+          'div[class*="response-content"] p',
+          // Broader fallbacks
+          'div[class*="break-words"] p',
+          'div[dir="auto"] p',
+          'p[style*="white-space: pre-wrap"]'
+        ];
       default: 
         return ['.assistant-response', '.model-output'];
     }
@@ -147,7 +206,7 @@ const getChatContainerSelector = (platform: string): string => {
         case 'Claude': return '[data-testid="conversation-container"]';
         case 'Gemini': return '.chat-history';
         case 'DeepSeek': return '.chat-container';
-        case 'Grok': return 'div[aria-label*="Timeline"]';
+        case 'Grok': return 'main, div[class*="flex"][class*="flex-col"], div[class*="relative"], body';
         default: return 'main';
     }
 };
@@ -156,11 +215,35 @@ const clickSendButton = (button: HTMLElement, platform: string) => {
     console.log(`🔧 Clicking send button for ${platform}`);
 
     if (platform === 'Grok') {
+        // Enhanced Grok button clicking
         button.focus();
-        button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        
+        // Simulate full mouse interaction sequence
+        button.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
+        button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
+        button.dispatchEvent(new MouseEvent('mousedown', { 
+            bubbles: true, 
+            cancelable: true,
+            button: 0,
+            buttons: 1
+        }));
+        
         setTimeout(() => {
-            button.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-            button.click();
+            button.dispatchEvent(new MouseEvent('mouseup', { 
+                bubbles: true, 
+                cancelable: true,
+                button: 0,
+                buttons: 0
+            }));
+            button.dispatchEvent(new MouseEvent('click', { 
+                bubbles: true, 
+                cancelable: true,
+                button: 0,
+                buttons: 0
+            }));
+            
+            // Additional React event triggers
+            button.dispatchEvent(new Event('submit', { bubbles: true }));
         }, 50);
     } else {
         button.click();
@@ -169,11 +252,42 @@ const clickSendButton = (button: HTMLElement, platform: string) => {
 
 const tryEnterKey = (inputField: HTMLElement, platform: string) => {
     console.log(`🔧 Trying Enter key for ${platform}`);
-    const enterEvent = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13 });
-    inputField.dispatchEvent(enterEvent);
-
+    
     if (platform === 'Grok') {
-        inputField.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13, ctrlKey: true }));
+        // Try multiple key combinations for Grok
+        const keyEvents = [
+            { key: 'Enter', code: 'Enter', keyCode: 13, which: 13 },
+            { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, ctrlKey: true },
+            { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, shiftKey: false }
+        ];
+        
+        keyEvents.forEach(eventProps => {
+            inputField.dispatchEvent(new KeyboardEvent('keydown', { 
+                bubbles: true, 
+                cancelable: true, 
+                ...eventProps 
+            }));
+            inputField.dispatchEvent(new KeyboardEvent('keypress', { 
+                bubbles: true, 
+                cancelable: true, 
+                ...eventProps 
+            }));
+            inputField.dispatchEvent(new KeyboardEvent('keyup', { 
+                bubbles: true, 
+                cancelable: true, 
+                ...eventProps 
+            }));
+        });
+    } else {
+        const enterEvent = new KeyboardEvent('keydown', { 
+            bubbles: true, 
+            cancelable: true, 
+            key: 'Enter', 
+            code: 'Enter', 
+            keyCode: 13, 
+            which: 13 
+        });
+        inputField.dispatchEvent(enterEvent);
     }
 };
 
@@ -260,6 +374,72 @@ const readLatestResponse = async (platform: string): Promise<string> => {
         
         throw new Error('Could not extract complete DeepSeek response using any method');
         
+    } else if (platform === 'Grok') {
+        // Enhanced Grok response reading
+        const selectors = getResponseSelectors(platform);
+        let responseElements: NodeListOf<HTMLElement> | null = null;
+
+        for (const selector of selectors) {
+            responseElements = document.querySelectorAll<HTMLElement>(selector);
+            console.log(`🔍 Trying Grok selector: ${selector}, found ${responseElements.length} elements`);
+            if (responseElements && responseElements.length > 0) {
+                console.log(`✅ Found ${responseElements.length} response elements with selector: ${selector}`);
+                break;
+            }
+        }
+        
+        if (!responseElements || responseElements.length === 0) {
+            // Fallback: try to find any message-like content
+            console.log('⚠️ Grok fallback: looking for any message content...');
+            const fallbackSelectors = [
+                'div[class*="break-words"] p',
+                'div[class*="prose"] div',
+                'div[dir="auto"] p'
+            ];
+            
+            for (const fallbackSelector of fallbackSelectors) {
+                responseElements = document.querySelectorAll<HTMLElement>(fallbackSelector);
+                if (responseElements && responseElements.length > 0) {
+                    console.log(`✅ Found ${responseElements.length} response elements with fallback selector: ${fallbackSelector}`);
+                    break;
+                }
+            }
+        }
+        
+        if (!responseElements || responseElements.length === 0) {
+            throw new Error(`No response elements found for ${platform}`);
+        }
+        
+        // For Grok, try to get the complete message by grouping related elements
+        const latestResponseElement = responseElements[responseElements.length - 1];
+        
+        // Try to find the parent message container
+        const messageContainer = latestResponseElement.closest('div[class*="message-bubble"]') || 
+                               latestResponseElement.closest('div[data-testid*="grok"]') ||
+                               latestResponseElement.closest('div[dir="auto"]');
+        
+        let responseText = '';
+        
+        if (messageContainer) {
+            // Get all text content from the message container
+            const textElements = messageContainer.querySelectorAll('p, div[class*="break-words"]');
+            responseText = Array.from(textElements)
+                .map(el => el.textContent?.trim())
+                .filter(text => text && text.length > 0)
+                .join('\n\n');
+        }
+        
+        if (!responseText) {
+            responseText = latestResponseElement.textContent?.trim() || '';
+        }
+        
+        if (!responseText) {
+            throw new Error('Could not extract text from the latest Grok response element.');
+        }
+
+        console.log(`✅ Extracted Grok response: "${responseText.substring(0, 100)}..."`);
+        return responseText;
+        
     } else {
         // Original logic for other platforms
         const selectors = getResponseSelectors(platform);
@@ -289,42 +469,88 @@ const readLatestResponse = async (platform: string): Promise<string> => {
 
 const waitForResponseCompletion = (platform: string, responseContainerSelector: string): Promise<void> => {
     return new Promise((resolve, reject) => {
-        let debounceTimer: number;
-        const DEBOUNCE_DELAY = 2000;
+        if (platform === 'Grok') {
+            // For Grok, use a different strategy - wait for new content to appear
+            console.log(`👀 Grok: Waiting for response to appear...`);
+            
+            let attempts = 0;
+            const maxAttempts = 30; // 30 seconds max
+            const checkInterval = 1000; // Check every second
+            
+            const checkForResponse = () => {
+                attempts++;
+                
+                // Look for response content
+                const responseElements = document.querySelectorAll('div[class*="break-words"] p[dir="auto"], p[dir="auto"][style*="white-space: pre-wrap"]');
+                
+                if (responseElements.length > 0) {
+                    const latestResponse = responseElements[responseElements.length - 1];
+                    const responseText = latestResponse.textContent?.trim();
+                    
+                    if (responseText && responseText.length > 10) {
+                        console.log(`✅ Grok response detected: "${responseText.substring(0, 50)}..."`);
+                        
+                        // Wait a bit more for the response to complete
+                        setTimeout(() => {
+                            console.log(`✅ Grok response completion wait finished.`);
+                            resolve();
+                        }, 3000);
+                        return;
+                    }
+                }
+                
+                if (attempts >= maxAttempts) {
+                    console.warn(`⚠️ Grok: Max attempts reached (${maxAttempts}), proceeding anyway...`);
+                    resolve();
+                    return;
+                }
+                
+                console.log(`🔍 Grok: Checking for response... (attempt ${attempts}/${maxAttempts})`);
+                setTimeout(checkForResponse, checkInterval);
+            };
+            
+            // Start checking after a brief delay
+            setTimeout(checkForResponse, 2000);
+            
+        } else {
+            // Original logic for other platforms
+            let debounceTimer: number;
+            const DEBOUNCE_DELAY = 2000;
 
-        const observer = new MutationObserver(() => {
-            clearTimeout(debounceTimer);
+            const observer = new MutationObserver(() => {
+                clearTimeout(debounceTimer);
+                debounceTimer = window.setTimeout(() => {
+                    console.log(`✅ Response on ${platform} appears to be complete.`);
+                    observer.disconnect();
+                    resolve();
+                }, DEBOUNCE_DELAY);
+            });
+
+            const chatContainer = document.querySelector(responseContainerSelector);
+            if (!chatContainer) {
+                console.warn(`Could not find chat container for ${platform}. Falling back to a fixed wait.`);
+                setTimeout(() => resolve(), 10000);
+                return;
+            }
+
+            console.log(`👀 Watching for response completion on ${platform}...`);
+            observer.observe(chatContainer, {
+                childList: true,
+                subtree: true,
+                characterData: true
+            });
+
             debounceTimer = window.setTimeout(() => {
-                console.log(`✅ Response on ${platform} appears to be complete.`);
+                console.log(`✅ Initial response on ${platform} complete.`);
                 observer.disconnect();
                 resolve();
             }, DEBOUNCE_DELAY);
-        });
 
-        const chatContainer = document.querySelector(responseContainerSelector);
-        if (!chatContainer) {
-            console.warn(`Could not find chat container for ${platform}. Falling back to a fixed 10s wait.`);
-            setTimeout(() => resolve(), 10000);
-            return;
+            setTimeout(() => {
+                observer.disconnect();
+                reject(new Error('Response completion timed out after 60 seconds.'));
+            }, 60000);
         }
-
-        console.log(`👀 Watching for response completion on ${platform}...`);
-        observer.observe(chatContainer, {
-            childList: true,
-            subtree: true,
-            characterData: true
-        });
-
-        debounceTimer = window.setTimeout(() => {
-            console.log(`✅ Initial response on ${platform} complete.`);
-            observer.disconnect();
-            resolve();
-        }, DEBOUNCE_DELAY);
-
-        setTimeout(() => {
-            observer.disconnect();
-            reject(new Error('Response completion timed out after 60 seconds.'));
-        }, 60000);
     });
 };
 
@@ -337,28 +563,44 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
             const injectAndSend = async () => {
                 try {
                     let inputField: HTMLElement | null = null;
-                    for (const selector of getInputSelectors(platform)) {
+                    const selectors = getInputSelectors(platform);
+                    
+                    for (const selector of selectors) {
                         try {
                             inputField = await waitForElement(selector, 2000);
-                            if (inputField) break;
-                        } catch (err) { /* continue */ }
+                            if (inputField) {
+                                console.log(`✅ Found input field with selector: ${selector}`);
+                                break;
+                            }
+                        } catch (err) { 
+                            console.log(`⚠️ Input selector failed: ${selector}`);
+                        }
                     }
+                    
                     if (!inputField) throw new Error('No visible text input found.');
                     
                     setTextContent(inputField, msg.prompt, platform);
-                    await new Promise(resolve => setTimeout(resolve, 300));
+                    await new Promise(resolve => setTimeout(resolve, platform === 'Grok' ? 500 : 300));
                     
                     let sendButton: HTMLElement | undefined;
-                    for (const selector of getSendButtonSelectors(platform)) {
+                    const buttonSelectors = getSendButtonSelectors(platform);
+                    
+                    for (const selector of buttonSelectors) {
                         try {
                             sendButton = await waitForElement(selector, 1000);
-                            if (sendButton) break;
-                        } catch (err) { /* continue */ }
+                            if (sendButton) {
+                                console.log(`✅ Found send button with selector: ${selector}`);
+                                break;
+                            }
+                        } catch (err) { 
+                            console.log(`⚠️ Send button selector failed: ${selector}`);
+                        }
                     }
                     
                     if (sendButton) {
                         clickSendButton(sendButton, platform);
                     } else {
+                        console.log('⚠️ No send button found, trying Enter key...');
                         tryEnterKey(inputField, platform);
                     }
 
