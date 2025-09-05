@@ -1,14 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "LLM Sync",
-  "version": "0.1.0",
+  "name": "NexusMind",
+  "description": "AI Enhancement Browser Extension",
+  "version": "1.0.0",
   "permissions": [
     "tabs",
     "storage",
     "scripting",
-    "activeTab",
-    "clipboardRead",
-    "clipboardWrite"
+    "activeTab"
   ],
   "host_permissions": [
     "*://chatgpt.com/*",
@@ -20,10 +19,10 @@
     "https://x.com/*",
     "https://deepseek.com/*",
     "https://chat.deepseek.com/*",
-    "http://localhost:3000/*"
+    "https://openrouter.ai/*"
   ],
   "background": {
-    "service_worker": "src/background.ts"
+    "service_worker": "src/background/index.ts"
   },
   "action": {
     "default_popup": "src/popup/index.html"
@@ -42,7 +41,7 @@
         "https://deepseek.com/*",
         "https://chat.deepseek.com/*"
       ],
-      "js": ["src/content-scripts/shared.ts"]
+      "js": ["src/content-scripts/index.ts"]
     }
   ]
 }

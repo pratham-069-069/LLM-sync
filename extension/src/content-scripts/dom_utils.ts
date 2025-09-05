@@ -1,7 +1,12 @@
-console.log('🧩 Multi-platform content script loaded on', location.href);
+// All DOM extraction and manipulation logic resides here.
+// These functions are designed to be platform-agnostic where possible,
+// but use platform-specific selectors when necessary.
 
-// Platform detection
-const getPlatformName = (): string => {
+/**
+ * Detects the current AI chat platform based on the hostname.
+ * @returns {string} The name of the platform (e.g., 'ChatGPT', 'Claude') or 'Unknown'.
+ */
+export const getPlatformName = (): string => {
   const hostname = location.hostname;
 
   if (hostname.includes('chatgpt.com')) return 'ChatGPT';
@@ -13,8 +18,12 @@ const getPlatformName = (): string => {
   return 'Unknown';
 };
 
-// Check if an element is visible on the page
-const isVisible = (el: HTMLElement) => {
+/**
+ * Checks if an element is currently visible on the page.
+ * @param {HTMLElement} el The element to check.
+ * @returns {boolean} True if the element is visible.
+ */
+export const isVisible = (el: HTMLElement) => {
   const style = window.getComputedStyle(el);
   const rect = el.getBoundingClientRect();
   return (
@@ -27,8 +36,13 @@ const isVisible = (el: HTMLElement) => {
   );
 };
 
-// Wait for an element to appear and be visible
-const waitForElement = (selector: string, timeout = 10000) =>
+/**
+ * Waits for a specific element to appear and be visible in the DOM.
+ * @param {string} selector The CSS selector for the element.
+ * @param {number} timeout The maximum time to wait in milliseconds.
+ * @returns {Promise<HTMLElement>} A promise that resolves with the found element.
+ */
+export const waitForElement = (selector: string, timeout = 10000) =>
   new Promise<HTMLElement>((resolve, reject) => {
     const el = document.querySelector<HTMLElement>(selector);
     if (el && isVisible(el)) {
@@ -52,8 +66,14 @@ const waitForElement = (selector: string, timeout = 10000) =>
     }, timeout);
   });
 
-// Set text content with platform-specific handling
-const setTextContent = (element: HTMLElement, text: string, platform: string) => {
+/**
+ * Sets the text content of an input field (textarea or contenteditable div)
+ * using platform-specific methods to ensure React state updates are triggered.
+ * @param {HTMLElement} element The input element.
+ * @param {string} text The text to insert.
+ * @param {string} platform The current AI platform.
+ */
+export const setTextContent = (element: HTMLElement, text: string, platform: string) => {
     console.log(`🔧 Setting text content for ${platform}:`, text.substring(0, 50) + '...');
 
     if (element.tagName === 'TEXTAREA') {
@@ -116,8 +136,12 @@ const setTextContent = (element: HTMLElement, text: string, platform: string) =>
     element.dispatchEvent(new Event('keyup', { bubbles: true }));
 };
 
-// Get platform-specific selectors
-const getInputSelectors = (platform: string): string[] => {
+/**
+ * Gets an array of CSS selectors for the main text input field for a given platform.
+ * @param {string} platform The current AI platform.
+ * @returns {string[]} An array of selectors to try.
+ */
+export const getInputSelectors = (platform: string): string[] => {
     switch (platform) {
         case 'ChatGPT':
             return ['#prompt-textarea'];
@@ -145,7 +169,12 @@ const getInputSelectors = (platform: string): string[] => {
     }
 };
 
-const getSendButtonSelectors = (platform: string): string[] => {
+/**
+ * Gets an array of CSS selectors for the send button for a given platform.
+ * @param {string} platform The current AI platform.
+ * @returns {string[]} An array of selectors to try.
+ */
+export const getSendButtonSelectors = (platform: string): string[] => {
     switch (platform) {
         case 'ChatGPT': return ['button[data-testid="send-button"]'];
         case 'Claude': return ['button[aria-label="Send Message"]'];
@@ -167,8 +196,12 @@ const getSendButtonSelectors = (platform: string): string[] => {
     }
 };
 
-// Fixed response selectors - focusing on complete response containers
-const getResponseSelectors = (platform: string): string[] => {
+/**
+ * Gets an array of CSS selectors for the AI's response containers for a given platform.
+ * @param {string} platform The current AI platform.
+ * @returns {string[]} An array of selectors to try.
+ */
+export const getResponseSelectors = (platform: string): string[] => {
     switch (platform) {
       case 'ChatGPT': 
         return ['div[data-message-author-role="assistant"] .prose'];
@@ -200,7 +233,13 @@ const getResponseSelectors = (platform: string): string[] => {
     }
 };
 
-const getChatContainerSelector = (platform: string): string => {
+/**
+ * Gets the CSS selector for the main chat container for a given platform.
+ * This is used to observe for new messages.
+ * @param {string} platform The current AI platform.
+ * @returns {string} The CSS selector for the chat container.
+ */
+export const getChatContainerSelector = (platform: string): string => {
     switch(platform) {
         case 'ChatGPT': return 'div[class*="react-scroll-to-bottom"]';
         case 'Claude': return '[data-testid="conversation-container"]';
@@ -211,7 +250,12 @@ const getChatContainerSelector = (platform: string): string => {
     }
 };
 
-const clickSendButton = (button: HTMLElement, platform: string) => {
+/**
+ * Clicks the send button using platform-specific methods.
+ * @param {HTMLElement} button The send button element.
+ * @param {string} platform The current AI platform.
+ */
+export const clickSendButton = (button: HTMLElement, platform: string) => {
     console.log(`🔧 Clicking send button for ${platform}`);
 
     if (platform === 'Grok') {
@@ -250,7 +294,12 @@ const clickSendButton = (button: HTMLElement, platform: string) => {
     }
 };
 
-const tryEnterKey = (inputField: HTMLElement, platform: string) => {
+/**
+ * Simulates pressing the Enter key in the input field as a fallback if no send button is found.
+ * @param {HTMLElement} inputField The input field element.
+ * @param {string} platform The current AI platform.
+ */
+export const tryEnterKey = (inputField: HTMLElement, platform: string) => {
     console.log(`🔧 Trying Enter key for ${platform}`);
     
     if (platform === 'Grok') {
@@ -291,8 +340,12 @@ const tryEnterKey = (inputField: HTMLElement, platform: string) => {
     }
 };
 
-// ✨ COMPLETELY REWRITTEN: Fixed readLatestResponse function
-const readLatestResponse = async (platform: string): Promise<string> => {
+/**
+ * Reads the latest response from the AI, handling complex DOM structures for specific platforms.
+ * @param {string} platform The current AI platform.
+ * @returns {Promise<string>} A promise that resolves with the full text of the latest response.
+ */
+export const readLatestResponse = async (platform: string): Promise<string> => {
     console.log(`📖 Reading latest response from ${platform}...`);
     
     if (platform === 'DeepSeek') {
@@ -467,7 +520,13 @@ const readLatestResponse = async (platform: string): Promise<string> => {
     }
 };
 
-const waitForResponseCompletion = (platform: string, responseContainerSelector: string): Promise<void> => {
+/**
+ * Waits for an AI response to finish generating by observing the DOM for a period of inactivity.
+ * @param {string} platform The current AI platform.
+ * @param {string} responseContainerSelector The selector for the container to observe.
+ * @returns {Promise<void>} A promise that resolves when the response is likely complete.
+ */
+export const waitForResponseCompletion = (platform: string, responseContainerSelector: string): Promise<void> => {
     return new Promise((resolve, reject) => {
         if (platform === 'Grok') {
             // For Grok, use a different strategy - wait for new content to appear
@@ -553,77 +612,3 @@ const waitForResponseCompletion = (platform: string, responseContainerSelector: 
         }
     });
 };
-
-// Main message listener
-if (typeof chrome !== 'undefined' && chrome.runtime) {
-    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-        const platform = getPlatformName();
-
-        if (msg.type === 'INJECT_PROMPT') {
-            const injectAndSend = async () => {
-                try {
-                    let inputField: HTMLElement | null = null;
-                    const selectors = getInputSelectors(platform);
-                    
-                    for (const selector of selectors) {
-                        try {
-                            inputField = await waitForElement(selector, 2000);
-                            if (inputField) {
-                                console.log(`✅ Found input field with selector: ${selector}`);
-                                break;
-                            }
-                        } catch (err) { 
-                            console.log(`⚠️ Input selector failed: ${selector}`);
-                        }
-                    }
-                    
-                    if (!inputField) throw new Error('No visible text input found.');
-                    
-                    setTextContent(inputField, msg.prompt, platform);
-                    await new Promise(resolve => setTimeout(resolve, platform === 'Grok' ? 500 : 300));
-                    
-                    let sendButton: HTMLElement | undefined;
-                    const buttonSelectors = getSendButtonSelectors(platform);
-                    
-                    for (const selector of buttonSelectors) {
-                        try {
-                            sendButton = await waitForElement(selector, 1000);
-                            if (sendButton) {
-                                console.log(`✅ Found send button with selector: ${selector}`);
-                                break;
-                            }
-                        } catch (err) { 
-                            console.log(`⚠️ Send button selector failed: ${selector}`);
-                        }
-                    }
-                    
-                    if (sendButton) {
-                        clickSendButton(sendButton, platform);
-                    } else {
-                        console.log('⚠️ No send button found, trying Enter key...');
-                        tryEnterKey(inputField, platform);
-                    }
-
-                    const containerSelector = getChatContainerSelector(platform);
-                    await waitForResponseCompletion(platform, containerSelector);
-
-                    sendResponse({ success: true });
-
-                } catch (err) {
-                    console.error(`❌ Error during INJECT_PROMPT for ${platform}:`, err);
-                    sendResponse({ success: false, error: err instanceof Error ? err.message : String(err) });
-                }
-            };
-            injectAndSend();
-            return true;
-        }
-        
-        else if (msg.type === 'READ_LATEST_RESPONSE') {
-            readLatestResponse(platform)
-                .then(response => sendResponse({ success: true, response: response }))
-                .catch(err => sendResponse({ success: false, error: err.message }));
-            return true;
-        }
-    });
-    console.log('🧩 Content script message listener registered successfully');
-}
