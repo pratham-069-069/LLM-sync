@@ -1,3 +1,6 @@
+import React from 'react';
+import UIRoot from '../components/UIRoot';
+import { createRoot } from 'react-dom/client';
 import {
     getPlatformName,
     getInputSelectors,
@@ -12,6 +15,49 @@ import {
 } from './dom_utils';
 
 console.log('🧩 Multi-platform content script loaded on', location.href);
+
+// --- UI Injection & Styling ---
+
+/**
+ * Injects a style tag into the document head to define highlight colors.
+ */
+const addHighlightStyles = () => {
+  const style = document.createElement('style');
+  style.textContent = `
+    .nexusmind-highlight-yellow { background-color: rgba(255, 215, 0, 0.4); }
+    .nexusmind-highlight-green { background-color: rgba(52, 211, 153, 0.4); }
+    .nexusmind-highlight-blue { background-color: rgba(96, 165, 250, 0.4); }
+    .nexusmind-highlight-red { background-color: rgba(248, 113, 113, 0.4); }
+    .nexusmind-highlight-purple { background-color: rgba(167, 139, 250, 0.4); }
+  `;
+  document.head.appendChild(style);
+};
+
+
+/**
+ * Creates the root container for the React UI and renders the UIRoot component.
+ */
+const initializeUI = () => {
+  // Add styles for highlights
+  addHighlightStyles();
+
+  // Create a container for our React app
+  const rootEl = document.createElement('div');
+  rootEl.id = 'nexusmind-root';
+  document.body.appendChild(rootEl);
+
+  // Render the UIRoot component into the container
+  const root = createRoot(rootEl);
+  root.render(
+    <React.StrictMode>
+      <UIRoot />
+    </React.StrictMode>
+  );
+  console.log('✅ NexusMind UI Root injected.');
+};
+
+// --- Initialization ---
+initializeUI();
 
 // Main message listener
 if (typeof chrome !== 'undefined' && chrome.runtime) {

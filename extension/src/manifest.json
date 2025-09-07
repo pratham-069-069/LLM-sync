@@ -41,7 +41,7 @@
         "https://deepseek.com/*",
         "https://chat.deepseek.com/*"
       ],
-      "js": ["src/content-scripts/index.ts"]
+      "js": ["src/content-scripts/index.tsx"]
     }
   ]
 }
