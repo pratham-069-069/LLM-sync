@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Highlighter from './Highlighter';
 import type { Highlight } from '../types';
 import { useStorage } from '../hooks/useStorage';
+import { createHighlight, getPlatformName, getResponseSelectors } from '../content-scripts/dom_utils';
 
 /**
  * The root component for all UI injected into the page.
@@ -16,25 +17,57 @@ const UIRoot: React.FC = () => {
   );
 
   /**
+   * Checks if a DOM node is within an AI response container.
+   */
+  const isWithinAIResponse = useCallback((node: Node): boolean => {
+    const platform = getPlatformName();
+    const selectors = getResponseSelectors(platform);
+    
+    // If we don't have selectors for this platform, allow highlights anywhere
+    if (!selectors || selectors.length === 0) return true;
+    
+    // Walk up the DOM tree to check if we're in an AI response
+    let current: Node | null = node;
+    while (current && current !== document.body) {
+      if (current instanceof HTMLElement) {
+        // Check if the element matches any of our selectors
+        for (const selector of selectors) {
+          try {
+            if (current.matches(selector) || current.closest(selector)) {
+              return true;
+            }
+          } catch (e) {
+            console.log(`Invalid selector: ${selector}`, e);
+          }
+        }
+      }
+      current = current.parentNode;
+    }
+    return false;
+  }, []);
+
+  /**
    * Handles the mouseup event to detect text selections.
    */
   const handleMouseUp = useCallback(() => {
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);
-      // TODO: Add logic to check if the selection is within a valid AI response container.
       
-      const rect = range.getBoundingClientRect();
-      setHighlighter({
-        top: window.scrollY + rect.top - 40, // Position above the selection
-        left: window.scrollX + rect.left + rect.width / 2,
-      });
-      setCurrentSelection(selection);
+      // Check if the selection is within a valid AI response container
+      if (isWithinAIResponse(range.commonAncestorContainer)) {
+        const rect = range.getBoundingClientRect();
+        setHighlighter({
+          top: window.scrollY + rect.top - 40, // Position above the selection
+          left: window.scrollX + rect.left + rect.width / 2,
+        });
+        setCurrentSelection(selection);
+      }
     } else {
       setHighlighter(null);
       setCurrentSelection(null);
     }
-  }, []);
+  }, [isWithinAIResponse]);
 
   /**
    * Applies the selected color as a highlight.
@@ -48,16 +81,10 @@ const UIRoot: React.FC = () => {
     // Create a unique ID for the highlight
     const id = `nexusmind-highlight-${Date.now()}`;
 
-    // Create the <span> element for the highlight
-    const span = document.createElement('span');
-    span.id = id;
-    span.className = `nexusmind-highlight nexusmind-highlight-${color}`;
-    span.dataset.color = color;
-
-    try {
-      // Wrap the selected text with the span
-      range.surroundContents(span);
-
+    // Use our DOM utility to apply the highlight
+    const success = createHighlight(range, color, id);
+    
+    if (success) {
       // Save the new highlight to storage
       const newHighlight: Highlight = {
         id,
@@ -67,11 +94,6 @@ const UIRoot: React.FC = () => {
         timestamp: Date.now(),
       };
       setHighlights([...(highlights || []), newHighlight]);
-
-    } catch (e) {
-      // This can happen if the selection spans across different block-level elements.
-      // For this MVP, we'll log the error and not highlight in this complex case.
-      console.error('NexusMind: Could not apply highlight to complex selection.', e);
     }
 
     // Clear the selection and hide the highlighter

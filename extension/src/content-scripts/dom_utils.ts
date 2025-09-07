@@ -612,3 +612,119 @@ export const waitForResponseCompletion = (platform: string, responseContainerSel
         }
     });
 };
+
+// --- HIGHLIGHTING UTILITIES ---
+
+/**
+ * Applies a highlight to a text selection while preserving HTML structure.
+ * Uses TreeWalker to iterate through text nodes and highlight each individually.
+ * 
+ * @param range The selection range to highlight
+ * @param color The highlight color to apply
+ * @param id Unique identifier for this highlight
+ * @returns boolean indicating if highlighting was successful
+ */
+export const createHighlight = (range: Range, color: string, id: string): boolean => {
+    // Don't proceed with empty selections
+    if (!range || !range.toString().trim()) return false;
+
+    // First try the simple approach for basic selections
+    if (isSafeForSurroundContents(range)) {
+        try {
+            const span = document.createElement('span');
+            span.id = id;
+            span.className = `nexusmind-highlight nexusmind-highlight-${color}`;
+            span.dataset.color = color;
+            range.surroundContents(span);
+            return true;
+        } catch (e) {
+            console.log('Simple highlighting failed, trying TreeWalker approach');
+            // Continue to TreeWalker approach
+        }
+    }
+    
+    // For complex selections, use TreeWalker to preserve HTML structure
+    return highlightWithTreeWalker(range, color, id);
+};
+
+/**
+ * Checks if a range is suitable for the simple surroundContents approach.
+ * This is only safe when the selection is entirely within a single text node.
+ */
+export const isSafeForSurroundContents = (range: Range): boolean => {
+    try {
+        return (
+            range.startContainer.nodeType === Node.TEXT_NODE &&
+            range.endContainer.nodeType === Node.TEXT_NODE &&
+            range.startContainer === range.endContainer
+        );
+    } catch {
+        return false;
+    }
+};
+
+/**
+ * Uses TreeWalker to highlight text nodes within a selection,
+ * preserving the original HTML structure.
+ */
+export const highlightWithTreeWalker = (range: Range, color: string, id: string): boolean => {
+    try {
+        // Clone the range contents to a document fragment
+        const fragment = range.cloneContents();
+        if (!fragment.textContent) return false;
+        
+        // Create a highlight class to apply
+        const highlightClass = `nexusmind-highlight nexusmind-highlight-${color}`;
+        
+        // Track if we've modified any nodes
+        let modified = false;
+        
+        // Process text nodes within the selection with TreeWalker
+        const walker = document.createTreeWalker(
+            fragment,
+            NodeFilter.SHOW_TEXT,
+            null
+        );
+        
+        // Collect text nodes to process
+        const textNodes: Text[] = [];
+        let currentNode: Text | null;
+        
+        while ((currentNode = walker.nextNode() as Text)) {
+            if (currentNode.textContent && currentNode.textContent.trim()) {
+                textNodes.push(currentNode);
+            }
+        }
+        
+        // Process each text node
+        textNodes.forEach(textNode => {
+            if (textNode.textContent && textNode.textContent.trim()) {
+                const span = document.createElement('span');
+                span.className = highlightClass;
+                span.dataset.highlightId = id;
+                span.dataset.color = color;
+                
+                // Replace text node with our highlighted span
+                const parent = textNode.parentNode;
+                if (parent) {
+                    const wrapper = span.cloneNode() as HTMLSpanElement;
+                    parent.replaceChild(wrapper, textNode);
+                    wrapper.appendChild(textNode);
+                    modified = true;
+                }
+            }
+        });
+        
+        // If we made changes, replace the range content with our modified fragment
+        if (modified) {
+            range.deleteContents();
+            range.insertNode(fragment);
+            return true;
+        }
+        
+        return false;
+    } catch (e) {
+        console.error('Error in TreeWalker highlighting:', e);
+        return false;
+    }
+};
