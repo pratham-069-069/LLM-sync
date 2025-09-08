@@ -206,16 +206,59 @@ export const getResponseSelectors = (platform: string): string[] => {
       case 'ChatGPT': 
         return ['div[data-message-author-role="assistant"] .prose'];
       case 'Claude': 
-        return ['div.font-claude-message'];
+        return [
+          // Updated from DOM screenshot analysis
+          '.font-claude-response',
+          '.standard-markdown',
+          '.whitespace-normal.break-words',
+          '.grid-cols-1.grid',
+          '[class*="standard-markdown"]',
+          'p[class*="whitespace-normal"]',
+          // Keep some original fallbacks
+          'div.font-claude-message',
+          'div[data-message-author-role="assistant"]',
+          '.prose',
+          '.contents',
+          '.claude-answer',
+          '.message-content[data-message-side="received"]',
+          '.message-thread__message--ai'
+        ];
       case 'Gemini': 
-        return ['.model-response-text .markdown'];
+        return [
+          // Updated from DOM screenshot analysis
+          '.response-content',
+          '.model-response-text',
+          '.markdown.markdown-main-panel',
+          'message-content',
+          '.markdown-main-panel',
+          '.ng-star-inserted',
+          // Keep some original fallbacks
+          '.model-response-text .markdown',
+          '[data-model-response]',
+          '[data-testid*="response"]',
+          '[role="region"]',
+          '.gemini-response-content',
+          '.response-container',
+          '.bard-response'
+        ];
       case 'DeepSeek': 
         return [
+          // Updated from DOM screenshot analysis
+          '[class*="ds-message"]',
+          '.ds-markdown',
+          '.ds-markdown-paragraph',
+          '[class*="ds-markdown"]',
+          // Keep original selectors as fallbacks
           'div.ds-markdown.ds-markdown-block',     // Main container for complete response
           'div.ds-markdown-block',                 // Alternative container
-          'div[class*="ds-markdown-block"]'        // Fallback with partial match
+          'div[class*="ds-markdown-block"]',       // Fallback with partial match
+          '.chat-message-item[data-role="assistant"]',
+          '.message-content',
+          '.deepseek-response',
+          '.ai-message-container',
+          '.ai-response-content'
         ];
-              case 'Grok': 
+      case 'Grok': 
         return [
           // Based on your DOM screenshot - target the actual content
           'div[class*="break-words"] p[dir="auto"]',
@@ -229,7 +272,13 @@ export const getResponseSelectors = (platform: string): string[] => {
           'p[style*="white-space: pre-wrap"]'
         ];
       default: 
-        return ['.assistant-response', '.model-output'];
+        return [
+          '.assistant-response', 
+          '.model-output',
+          '[data-role="assistant"]',
+          '.assistant-message',
+          '.ai-message'
+        ];
     }
 };
 
@@ -625,29 +674,45 @@ export const waitForResponseCompletion = (platform: string, responseContainerSel
  * @returns boolean indicating if highlighting was successful
  */
 export const createHighlight = (range: Range, color: string, id: string): boolean => {
-    // Don't proceed with empty selections
-    if (!range || !range.toString().trim()) return false;
+  // Don't proceed with empty selections
+  if (!range || !range.toString().trim()) return false;
 
-    // First try the simple approach for basic selections
-    if (isSafeForSurroundContents(range)) {
-        try {
-            const span = document.createElement('span');
-            span.id = id;
-            span.className = `nexusmind-highlight nexusmind-highlight-${color}`;
-            span.dataset.color = color;
-            range.surroundContents(span);
-            return true;
-        } catch (e) {
-            console.log('Simple highlighting failed, trying TreeWalker approach');
-            // Continue to TreeWalker approach
-        }
+  console.log(`Creating highlight with color: ${color}, id: ${id}`);
+  
+  // Check the platform
+  const platform = getPlatformName();
+  console.log(`Current platform: ${platform}`);
+  
+  // Use specialized approach for Angular-based platforms
+  if (platform === 'Gemini' || platform === 'DeepSeek') {
+    console.log('Using Angular-compatible highlighting approach');
+    return createHighlightForAngularApps(range, color, id);
+  }
+  
+  console.log('Using standard highlighting approach');
+  
+  // For other platforms, use the original approach
+  // First try the simple approach for basic selections
+  if (isSafeForSurroundContents(range)) {
+    try {
+      const span = document.createElement('span');
+      span.id = id;
+      span.className = `nexusmind-highlight nexusmind-highlight-${color}`;
+      span.dataset.color = color;
+      range.surroundContents(span);
+      console.log('Simple highlighting successful');
+      return true;
+    } catch (e) {
+      console.log('Simple highlighting failed, trying TreeWalker approach');
+      // Continue to TreeWalker approach
     }
-    
-    // For complex selections, use TreeWalker to preserve HTML structure
-    return highlightWithTreeWalker(range, color, id);
-};
-
-/**
+  }
+  
+  // For complex selections, use TreeWalker to preserve HTML structure
+  const result = highlightWithTreeWalker(range, color, id);
+  console.log(`TreeWalker highlighting result: ${result}`);
+  return result;
+};/**
  * Checks if a range is suitable for the simple surroundContents approach.
  * This is only safe when the selection is entirely within a single text node.
  */
@@ -668,63 +733,301 @@ export const isSafeForSurroundContents = (range: Range): boolean => {
  * preserving the original HTML structure.
  */
 export const highlightWithTreeWalker = (range: Range, color: string, id: string): boolean => {
-    try {
-        // Clone the range contents to a document fragment
-        const fragment = range.cloneContents();
-        if (!fragment.textContent) return false;
-        
-        // Create a highlight class to apply
-        const highlightClass = `nexusmind-highlight nexusmind-highlight-${color}`;
-        
-        // Track if we've modified any nodes
-        let modified = false;
-        
-        // Process text nodes within the selection with TreeWalker
-        const walker = document.createTreeWalker(
-            fragment,
-            NodeFilter.SHOW_TEXT,
-            null
-        );
-        
-        // Collect text nodes to process
-        const textNodes: Text[] = [];
-        let currentNode: Text | null;
-        
-        while ((currentNode = walker.nextNode() as Text)) {
-            if (currentNode.textContent && currentNode.textContent.trim()) {
-                textNodes.push(currentNode);
-            }
-        }
-        
-        // Process each text node
-        textNodes.forEach(textNode => {
-            if (textNode.textContent && textNode.textContent.trim()) {
-                const span = document.createElement('span');
-                span.className = highlightClass;
-                span.dataset.highlightId = id;
-                span.dataset.color = color;
-                
-                // Replace text node with our highlighted span
-                const parent = textNode.parentNode;
-                if (parent) {
-                    const wrapper = span.cloneNode() as HTMLSpanElement;
-                    parent.replaceChild(wrapper, textNode);
-                    wrapper.appendChild(textNode);
-                    modified = true;
-                }
-            }
-        });
-        
-        // If we made changes, replace the range content with our modified fragment
-        if (modified) {
-            range.deleteContents();
-            range.insertNode(fragment);
-            return true;
-        }
-        
-        return false;
-    } catch (e) {
-        console.error('Error in TreeWalker highlighting:', e);
-        return false;
+  try {
+    // Clone the range contents to a document fragment
+    const fragment = range.cloneContents();
+    if (!fragment.textContent) return false;
+    
+    // Create a highlight class to apply
+    const highlightClass = `nexusmind-highlight nexusmind-highlight-${color}`;
+    
+    // Track if we've modified any nodes
+    let modified = false;
+    
+    // Process text nodes within the selection with TreeWalker
+    const walker = document.createTreeWalker(
+      fragment,
+      NodeFilter.SHOW_TEXT,
+      null
+    );
+    
+    // Collect text nodes to process
+    const textNodes: Text[] = [];
+    let currentNode: Text | null;
+    
+    while ((currentNode = walker.nextNode() as Text)) {
+      if (currentNode.textContent && currentNode.textContent.trim()) {
+        textNodes.push(currentNode);
+      }
     }
+    
+    // Process each text node
+    textNodes.forEach(textNode => {
+      if (textNode.textContent && textNode.textContent.trim()) {
+        const span = document.createElement('span');
+        span.className = highlightClass;
+        span.dataset.highlightId = id;
+        span.dataset.color = color;
+        
+        // Replace text node with our highlighted span
+        const parent = textNode.parentNode;
+        if (parent) {
+          const wrapper = span.cloneNode() as HTMLSpanElement;
+          parent.replaceChild(wrapper, textNode);
+          wrapper.appendChild(textNode);
+          modified = true;
+        }
+      }
+    });
+    
+    // If we made changes, replace the range content with our modified fragment
+    if (modified) {
+      range.deleteContents();
+      range.insertNode(fragment);
+      return true;
+    }
+    
+    return false;
+  } catch (e) {
+    console.error('Error in TreeWalker highlighting:', e);
+    return false;
+  }
+};
+
+/**
+ * Platform-specific highlight implementation for Gemini and other Angular-based UIs
+ * @param range The selection range to highlight
+ * @param color The highlight color
+ * @param id The unique highlight ID
+ * @returns boolean Success status
+ */
+export const createHighlightForAngularApps = (range: Range, color: string, id: string): boolean => {
+  try {
+    console.log('Creating Angular-compatible highlight overlay...');
+    
+    // 1. Create the styles we'll need if they don't exist yet
+    ensureHighlightStylesExist();
+    
+    // 2. Create a container for all our overlays to manage them easier
+    let container = document.getElementById('nexusmind-highlights-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'nexusmind-highlights-container';
+      container.style.position = 'absolute';
+      container.style.top = '0';
+      container.style.left = '0';
+      container.style.pointerEvents = 'none';
+      container.style.zIndex = '9999';
+      document.body.appendChild(container);
+      
+      // Add scroll event listener to reposition highlights
+      window.addEventListener('scroll', repositionAllHighlights);
+      window.addEventListener('resize', repositionAllHighlights);
+    }
+    
+    // 3. Angular often prevents direct DOM manipulation, so we'll use
+    // a different approach - create an overlay instead of modifying the DOM
+    const rangeRects = range.getClientRects();
+    if (!rangeRects || rangeRects.length === 0) {
+      console.warn('No range rects found for selection');
+      return false;
+    }
+    
+    console.log(`Creating ${rangeRects.length} overlay parts for highlight ${id}`);
+    
+    // 4. Create highlight overlays for each part of the selection
+    const highlightParts = [];
+    
+    for (let i = 0; i < rangeRects.length; i++) {
+      const rect = rangeRects[i];
+      
+      // Skip tiny rectangles (often artifacts)
+      if (rect.width < 3 || rect.height < 3) continue;
+      
+      // Create overlay element
+      const overlay = document.createElement('div');
+      overlay.id = `${id}-part-${i}`;
+      overlay.className = `nexusmind-highlight-overlay nexusmind-highlight-${color}`;
+      overlay.dataset.color = color;
+      overlay.dataset.highlightId = id;
+      overlay.dataset.partIndex = i.toString();
+      
+      // Position the overlay precisely over the text
+      positionOverlay(overlay, rect);
+      
+      // Add to container instead of body
+      container.appendChild(overlay);
+      highlightParts.push(overlay);
+      
+      console.log(`Created overlay part ${i} at (${rect.left + window.scrollX}, ${rect.top + window.scrollY})`);
+    }
+    
+    if (highlightParts.length === 0) {
+      console.warn('No valid highlight parts created');
+      return false;
+    }
+    
+    // 5. Store the text content and positioning data for future reference
+    const textContent = range.toString();
+    storeHighlightData(id, color, textContent, rangeRects);
+    
+    console.log(`Angular highlight overlay created successfully with ${highlightParts.length} parts`);
+    return true;
+  } catch (e) {
+    console.error('Error creating Angular highlight overlay:', e);
+    return false;
+  }
+};
+
+/**
+ * Ensures highlight styles exist in the document
+ */
+const ensureHighlightStylesExist = () => {
+  const styleId = 'nexusmind-highlight-styles';
+  if (document.getElementById(styleId)) return;
+  
+  const style = document.createElement('style');
+  style.id = styleId;
+  style.textContent = `
+    .nexusmind-highlight-yellow { background-color: rgba(255, 255, 0, 0.3); }
+    .nexusmind-highlight-blue { background-color: rgba(0, 0, 255, 0.2); }
+    .nexusmind-highlight-green { background-color: rgba(0, 255, 0, 0.2); }
+    .nexusmind-highlight-pink { background-color: rgba(255, 105, 180, 0.2); }
+    .nexusmind-highlight-purple { background-color: rgba(128, 0, 128, 0.2); }
+    .nexusmind-highlight-red { background-color: rgba(255, 0, 0, 0.2); }
+    .nexusmind-highlight-overlay {
+      border-radius: 2px;
+      mix-blend-mode: multiply;
+      pointer-events: none !important;
+      position: absolute !important;
+      z-index: 9999 !important;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.05);
+    }
+  `;
+  document.head.appendChild(style);
+  console.log('✅ NexusMind highlight styles added to document');
+};
+
+/**
+ * Stores highlight data for future reference
+ */
+const storeHighlightData = (id: string, color: string, text: string, rects: DOMRectList) => {
+  // Store rect positions in case we need to reconstruct highlights
+  const rectData = Array.from(rects).map(rect => ({
+    left: rect.left + window.scrollX,
+    top: rect.top + window.scrollY,
+    width: rect.width,
+    height: rect.height
+  }));
+  
+  const highlightData = {
+    id,
+    color,
+    text,
+    rects: rectData,
+    timestamp: Date.now()
+  };
+  
+  // Store in a custom data attribute on the document body for now
+  // In a full implementation, this would go to chrome.storage.local
+  const dataKey = `data-nexusmind-highlight-${id}`;
+  document.body.setAttribute(dataKey, JSON.stringify(highlightData));
+};
+
+/**
+ * Helper function to position an overlay based on a DOMRect
+ */
+const positionOverlay = (overlay: HTMLElement, rect: DOMRect) => {
+  overlay.style.position = 'absolute';
+  overlay.style.left = `${rect.left + window.scrollX}px`;
+  overlay.style.top = `${rect.top + window.scrollY}px`;
+  overlay.style.width = `${rect.width}px`;
+  overlay.style.height = `${rect.height}px`;
+  overlay.style.pointerEvents = 'none';
+  overlay.style.zIndex = '9999';
+};
+
+/**
+ * Function to reposition all highlights when scrolling or resizing
+ */
+const repositionAllHighlights = () => {
+  const container = document.getElementById('nexusmind-highlights-container');
+  if (!container) return;
+  
+  // Find all highlight parts
+  const parts = container.querySelectorAll('.nexusmind-highlight-overlay');
+  
+  // Reposition each part based on stored data
+  parts.forEach(part => {
+    const highlightId = part.getAttribute('data-highlight-id');
+    const partIndex = part.getAttribute('data-part-index');
+    
+    if (!highlightId || !partIndex) return;
+    
+    const dataKey = `data-nexusmind-highlight-${highlightId}`;
+    const highlightDataStr = document.body.getAttribute(dataKey);
+    
+    if (!highlightDataStr) return;
+    
+    try {
+      const highlightData = JSON.parse(highlightDataStr);
+      const rectData = highlightData.rects[parseInt(partIndex, 10)];
+      
+      if (rectData) {
+        // Update position based on current scroll
+        const element = part as HTMLElement;
+        element.style.left = `${rectData.left}px`;
+        element.style.top = `${rectData.top}px`;
+      }
+    } catch (e) {
+      console.error('Error repositioning highlight:', e);
+    }
+  });
+};/**
+ * Debug function to help identify correct response container selectors for each platform.
+ * Call this in the console to see what selectors are available on the current page.
+ */
+export const debugResponseContainers = () => {
+    console.log('=== Debugging AI Response Containers ===');
+    const platform = getPlatformName();
+    console.log(`Current platform: ${platform}`);
+    console.log(`Current URL: ${window.location.href}`);
+    
+    // Log all potential selectors for different platforms
+    console.log('\n--- Available AI response elements ---');
+    
+    // Claude
+    console.log('\nClaude selectors:');
+    console.log('[data-message-author-role="assistant"]:', document.querySelectorAll('[data-message-author-role="assistant"]').length);
+    console.log('.prose:', document.querySelectorAll('.prose').length);
+    console.log('.contents:', document.querySelectorAll('.contents').length);
+    console.log('.claude-answer:', document.querySelectorAll('.claude-answer').length);
+    console.log('.message-content[data-message-side="received"]:', document.querySelectorAll('.message-content[data-message-side="received"]').length);
+    console.log('.message-thread__message--ai:', document.querySelectorAll('.message-thread__message--ai').length);
+    
+    // Gemini
+    console.log('\nGemini selectors:');
+    console.log('[data-model-response]:', document.querySelectorAll('[data-model-response]').length);
+    console.log('[data-testid*="response"]:', document.querySelectorAll('[data-testid*="response"]').length);
+    console.log('[role="region"]:', document.querySelectorAll('[role="region"]').length);
+    console.log('.gemini-response-content:', document.querySelectorAll('.gemini-response-content').length);
+    console.log('.response-container:', document.querySelectorAll('.response-container').length);
+    console.log('.model-response-text:', document.querySelectorAll('.model-response-text').length);
+    console.log('.bard-response:', document.querySelectorAll('.bard-response').length);
+    
+    // DeepSeek
+    console.log('\nDeepSeek selectors:');
+    console.log('.chat-message-item[data-role="assistant"]:', document.querySelectorAll('.chat-message-item[data-role="assistant"]').length);
+    console.log('.message-content:', document.querySelectorAll('.message-content').length);
+    console.log('.deepseek-response:', document.querySelectorAll('.deepseek-response').length);
+    console.log('.ai-message-container:', document.querySelectorAll('.ai-message-container').length);
+    console.log('.ai-response-content:', document.querySelectorAll('.ai-response-content').length);
+    
+    // Generic AI response indicators
+    console.log('\nGeneric AI response selectors:');
+    console.log('[data-role="assistant"]:', document.querySelectorAll('[data-role="assistant"]').length);
+    console.log('.assistant-message:', document.querySelectorAll('.assistant-message').length);
+    console.log('.ai-message:', document.querySelectorAll('.ai-message').length);
+    
+    console.log('\n=== End Debug Report ===');
 };

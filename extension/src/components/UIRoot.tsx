@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Highlighter from './Highlighter';
 import type { Highlight } from '../types';
 import { useStorage } from '../hooks/useStorage';
-import { createHighlight, getPlatformName, getResponseSelectors } from '../content-scripts/dom_utils';
+import { createHighlight, getPlatformName, getResponseSelectors, debugResponseContainers } from '../content-scripts/dom_utils';
 
 /**
  * The root component for all UI injected into the page.
@@ -15,6 +15,9 @@ const UIRoot: React.FC = () => {
     'nexusmind-highlights',
     []
   );
+  
+  // Ref to store the active selection for direct keyboard access
+  const activeSelectionRef = useRef<Selection | null>(null);
 
   /**
    * Checks if a DOM node is within an AI response container.
@@ -54,18 +57,96 @@ const UIRoot: React.FC = () => {
     if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);
       
+      // Store in ref for direct keyboard access
+      activeSelectionRef.current = selection;
+      
+      // Debug output for selection analysis
+      console.log('Selection common ancestor:', range.commonAncestorContainer);
+      console.log('Selection text:', selection.toString().substring(0, 50) + '...');
+      
       // Check if the selection is within a valid AI response container
-      if (isWithinAIResponse(range.commonAncestorContainer)) {
+      const isInResponse = isWithinAIResponse(range.commonAncestorContainer);
+      console.log('Is within AI response?', isInResponse);
+      
+      if (isInResponse) {
         const rect = range.getBoundingClientRect();
         setHighlighter({
           top: window.scrollY + rect.top - 40, // Position above the selection
           left: window.scrollX + rect.left + rect.width / 2,
         });
         setCurrentSelection(selection);
+        
+        // Show keyboard shortcut hint
+        showKeyboardShortcutHint(rect);
       }
     } else {
+      activeSelectionRef.current = null;
       setHighlighter(null);
       setCurrentSelection(null);
+      hideKeyboardShortcutHint();
+    }
+  }, [isWithinAIResponse]);
+
+  /**
+   * Handles keyboard shortcuts for highlighting.
+   */
+  const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    // Only proceed if Alt+Shift is pressed
+    if (!event.altKey || !event.shiftKey) return;
+    
+    // Debug the key pressed with modifiers
+    console.log(`Shortcut attempted: Alt+Shift+${event.key} (keyCode: ${event.keyCode})`);
+    
+    // Only proceed if text is selected
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+    
+    const range = selection.getRangeAt(0);
+    
+    // Check if selection is in AI response
+    if (!isWithinAIResponse(range.commonAncestorContainer)) return;
+    
+    // Handle different color shortcuts
+    let color: Highlight['color'] | null = null;
+    
+    switch(event.key) {
+      // Handle both number keys and their shift-modified versions
+      case '1': 
+      case '!': 
+        color = 'yellow';
+        break;
+      case '2': 
+      case '@': 
+        color = 'blue';
+        break;
+      case '3': 
+      case '#': 
+        color = 'green';
+        break;
+      case '4': 
+      case '$': 
+        color = 'red';
+        break;
+      case '5': 
+      case '%': 
+        color = 'purple';
+        break;
+      default: 
+        return; // Unknown shortcut, do nothing
+    }
+    
+    if (color) {
+      // Stop event propagation and prevent default behavior
+      event.preventDefault();
+      event.stopPropagation();
+      
+      console.log(`✓ Applying ${color} highlight via keyboard shortcut`);
+      
+      // Apply the highlight directly
+      applyHighlightFromKeyboard(color, selection);
+      
+      // Show notification
+      showHighlightNotification(color);
     }
   }, [isWithinAIResponse]);
 
@@ -75,14 +156,19 @@ const UIRoot: React.FC = () => {
   const applyHighlight = (color: Highlight['color']) => {
     if (!currentSelection || !currentSelection.rangeCount) return;
 
+    console.log(`Applying highlight with color: ${color}`);
     const range = currentSelection.getRangeAt(0);
     const text = currentSelection.toString();
+    console.log(`Selected text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
     
     // Create a unique ID for the highlight
     const id = `nexusmind-highlight-${Date.now()}`;
+    console.log(`Generated highlight ID: ${id}`);
 
     // Use our DOM utility to apply the highlight
+    console.log(`Calling createHighlight for platform: ${getPlatformName()}`);
     const success = createHighlight(range, color, id);
+    console.log(`Highlight creation result: ${success ? 'Success' : 'Failed'}`);
     
     if (success) {
       // Save the new highlight to storage
@@ -94,6 +180,7 @@ const UIRoot: React.FC = () => {
         timestamp: Date.now(),
       };
       setHighlights([...(highlights || []), newHighlight]);
+      console.log(`Highlight saved to storage, total highlights: ${(highlights || []).length + 1}`);
     }
 
     // Clear the selection and hide the highlighter
@@ -102,12 +189,222 @@ const UIRoot: React.FC = () => {
     setCurrentSelection(null);
   };
 
+  /**
+   * Applies highlight from keyboard shortcut (without using currentSelection state).
+   */
+  const applyHighlightFromKeyboard = (color: Highlight['color'], selection: Selection) => {
+    if (!selection || !selection.rangeCount) return;
+
+    console.log(`Applying keyboard highlight with color: ${color}`);
+    const range = selection.getRangeAt(0);
+    const text = selection.toString();
+    console.log(`Selected text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+    
+    // Create a unique ID for the highlight
+    const id = `nexusmind-highlight-${Date.now()}`;
+    console.log(`Generated highlight ID: ${id}`);
+
+    // Use our DOM utility to apply the highlight
+    console.log(`Calling createHighlight for platform: ${getPlatformName()}`);
+    const success = createHighlight(range, color, id);
+    console.log(`Highlight creation result: ${success ? 'Success' : 'Failed'}`);
+    
+    if (success) {
+      // Save the new highlight to storage
+      const newHighlight: Highlight = {
+        id,
+        url: window.location.href,
+        text,
+        color,
+        timestamp: Date.now(),
+      };
+      setHighlights([...(highlights || []), newHighlight]);
+      console.log(`Highlight saved to storage, total highlights: ${(highlights || []).length + 1}`);
+      
+      // Show notification
+      showHighlightNotification(color);
+    }
+
+    // Clear the selection and hide any UI
+    selection.removeAllRanges();
+    setHighlighter(null);
+    setCurrentSelection(null);
+    activeSelectionRef.current = null;
+    hideKeyboardShortcutHint();
+  };
+
+  /**
+   * Shows a temporary notification when highlighting via keyboard.
+   */
+  const showHighlightNotification = (color: Highlight['color']) => {
+    const notification = document.createElement('div');
+    notification.textContent = `✅ Highlighted with ${color}`;
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #333;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      z-index: 10000;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      border-left: 4px solid var(--highlight-color);
+      animation: slideIn 0.3s ease;
+    `;
+    
+    // Set the highlight color variable
+    const colorMap = {
+      yellow: '#FFD700',
+      blue: '#4169E1',
+      green: '#32CD32',
+      red: '#FF4444',
+      purple: '#9370DB'
+    };
+    notification.style.setProperty('--highlight-color', colorMap[color]);
+    
+    // Add animation styles
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+    `;
+    document.head.appendChild(style);
+    
+    document.body.appendChild(notification);
+    
+    // Remove after 2 seconds with fade out
+    setTimeout(() => {
+      notification.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+      notification.style.opacity = '0';
+      notification.style.transform = 'translateX(100%)';
+      setTimeout(() => {
+        notification.remove();
+        style.remove();
+      }, 300);
+    }, 2000);
+  };
+
+  /**
+   * Shows keyboard shortcut hints when text is selected.
+   */
+  const showKeyboardShortcutHint = (rect: DOMRect) => {
+    // Remove any existing hint
+    hideKeyboardShortcutHint();
+    
+    const hint = document.createElement('div');
+    hint.id = 'nexusmind-shortcut-hint';
+    hint.innerHTML = `
+      <div style="font-weight: 600; margin-bottom: 4px; color: #333;">Keyboard Shortcuts:</div>
+      <div>Alt+Shift+1: <span style="color: #FFD700;">●</span> Yellow</div>
+      <div>Alt+Shift+2: <span style="color: #4169E1;">●</span> Blue</div>
+      <div>Alt+Shift+3: <span style="color: #32CD32;">●</span> Green</div>
+      <div>Alt+Shift+4: <span style="color: #FF4444;">●</span> Red</div>
+      <div>Alt+Shift+5: <span style="color: #9370DB;">●</span> Purple</div>
+      <div style="font-size: 0.9em; margin-top: 4px; color: #666;">(Works with !@#$% symbols too)</div>
+    `;
+    hint.style.cssText = `
+      position: absolute;
+      top: ${rect.top + window.scrollY + rect.height + 5}px;
+      left: ${rect.left + window.scrollX}px;
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 11px;
+      font-family: system-ui, -apple-system, sans-serif;
+      line-height: 1.4;
+      z-index: 10000;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      max-width: 200px;
+      animation: fadeIn 0.2s ease;
+    `;
+    
+    // Add fade in animation
+    const style = document.createElement('style');
+    style.id = 'nexusmind-hint-styles';
+    style.textContent = `
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-5px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+    `;
+    if (!document.getElementById('nexusmind-hint-styles')) {
+      document.head.appendChild(style);
+    }
+    
+    document.body.appendChild(hint);
+    
+    // Auto-hide after 4 seconds
+    setTimeout(() => {
+      hideKeyboardShortcutHint();
+    }, 4000);
+  };
+
+  /**
+   * Hides the keyboard shortcut hint.
+   */
+  const hideKeyboardShortcutHint = () => {
+    const existingHint = document.getElementById('nexusmind-shortcut-hint');
+    if (existingHint) {
+      existingHint.remove();
+    }
+  };
+
+  // Add direct keyboard handling with capture phase and debug logging
+  useEffect(() => {
+    const handleKeyDownDirect = (e: KeyboardEvent) => {
+      // Debug logging for all key events
+      if (e.altKey || e.ctrlKey) {
+        console.log('Key pressed:', e.key, 
+          'Alt:', e.altKey, 
+          'Shift:', e.shiftKey, 
+          'Ctrl:', e.ctrlKey, 
+          'Selection:', window.getSelection()?.toString().slice(0, 20)
+        );
+      }
+      
+      if (e.altKey && e.shiftKey && activeSelectionRef.current) {
+        const num = parseInt(e.key);
+        if (num >= 1 && num <= 5) {
+          e.preventDefault();
+          e.stopPropagation(); // Stop event bubbling
+          console.log(`Applying highlight color for Alt+Shift+${num}`);
+          
+          const colorMap = ['yellow', 'blue', 'green', 'red', 'purple'];
+          applyHighlightFromKeyboard(colorMap[num-1] as Highlight['color'], activeSelectionRef.current);
+        }
+      }
+    };
+
+    // Use capture phase to intercept events before they bubble
+    document.addEventListener('keydown', handleKeyDownDirect, true);
+    return () => document.removeEventListener('keydown', handleKeyDownDirect, true);
+  }, []);
+
   useEffect(() => {
     document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleMouseUp]);
+  }, [handleMouseUp, handleKeyDown]);
+
+  // Debug response containers after a delay to ensure page is loaded
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      console.log('NexusMind: Running response container debug...');
+      debugResponseContainers();
+    }, 3000);
+    
+    return () => clearTimeout(timer);
+  }, []);
 
   // Re-apply existing highlights on page load or when highlights change
   useEffect(() => {
