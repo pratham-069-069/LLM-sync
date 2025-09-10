@@ -673,7 +673,7 @@ export const waitForResponseCompletion = (platform: string, responseContainerSel
  * @param id Unique identifier for this highlight
  * @returns boolean indicating if highlighting was successful
  */
-export const createHighlight = (range: Range, color: string, id: string): boolean => {
+export const createHighlight = async (range: Range, color: string, id: string): Promise<boolean> => {
   // Don't proceed with empty selections
   if (!range || !range.toString().trim()) return false;
 
@@ -686,7 +686,7 @@ export const createHighlight = (range: Range, color: string, id: string): boolea
   // Use specialized approach for Angular-based platforms
   if (platform === 'Gemini' || platform === 'DeepSeek') {
     console.log('Using Angular-compatible highlighting approach');
-    return createHighlightForAngularApps(range, color, id);
+    return await createHighlightForAngularApps(range, color, id);
   }
   
   console.log('Using standard highlighting approach');
@@ -793,90 +793,161 @@ export const highlightWithTreeWalker = (range: Range, color: string, id: string)
     return false;
   }
 };
+/**
+ * Gets the virtual scroll top value from a container that uses CSS transform for scrolling.
+ * @param {HTMLElement} scrollElement The container element (e.g., infinite-scroller).
+ * @returns {number} The vertical scroll offset.
+ */
+const getVirtualScrollTop = (scrollElement: HTMLElement): number => {
+  // Find the direct child div that is being transformed.
+  const transformedContent = scrollElement.querySelector<HTMLElement>(':scope > div');
+  
+  if (!transformedContent) {
+    // If no transformed child is found, fall back to the regular scrollTop.
+    return scrollElement.scrollTop;
+  }
+
+  const transformStyle = window.getComputedStyle(transformedContent).transform;
+
+  // The transform style will be 'matrix(1, 0, 0, 1, 0, -3077.6)' or 'none'.
+  // We need to extract the last number, which is the translateY value.
+  if (transformStyle && transformStyle !== 'none') {
+    try {
+      // Use a regular expression to parse the matrix and get the 'e' (tx) and 'f' (ty) values
+      const matrixValues = transformStyle.match(/matrix.*\((.+)\)/);
+      if (matrixValues && matrixValues[1]) {
+        const parts = matrixValues[1].split(', ');
+        // The vertical translation (translateY) is the last part of the matrix.
+        const translateY = parseFloat(parts[5]);
+        // The value is negative when scrolling down, so we return its absolute value.
+        return Math.abs(translateY);
+      }
+    } catch (e) {
+      console.error("Could not parse transform style:", transformStyle, e);
+      return scrollElement.scrollTop; // Fallback on error
+    }
+  }
+
+  return scrollElement.scrollTop; // Fallback if no transform
+};
 
 /**
- * Platform-specific highlight implementation for Gemini and other Angular-based UIs
+ * Platform-specific highlight implementation for Gemini and DeepSeek.
+ * This version positions highlights relative to the app's internal scroll container.
  * @param range The selection range to highlight
  * @param color The highlight color
  * @param id The unique highlight ID
  * @returns boolean Success status
  */
-export const createHighlightForAngularApps = (range: Range, color: string, id: string): boolean => {
+export const createHighlightForAngularApps = async (range: Range, color: string, id: string): Promise<boolean> => {
   try {
-    console.log('Creating Angular-compatible highlight overlay...');
-    
-    // 1. Create the styles we'll need if they don't exist yet
+    const platform = getPlatformName();
+    console.log(`Creating Angular-compatible highlight for ${platform}`);
+
+    const positioningContainer = await getScrollContainerForPlatform(platform);
+    const scrollElement = positioningContainer.querySelector('infinite-scroller') || positioningContainer;
+    console.log("Using element for positioning:", positioningContainer);
+    console.log("Using element for scroll values:", scrollElement);
+
     ensureHighlightStylesExist();
-    
-    // 2. Create a container for all our overlays to manage them easier
-    let container = document.getElementById('nexusmind-highlights-container');
-    if (!container) {
-      container = document.createElement('div');
-      container.id = 'nexusmind-highlights-container';
-      container.style.position = 'absolute';
-      container.style.top = '0';
-      container.style.left = '0';
-      container.style.pointerEvents = 'none';
-      container.style.zIndex = '9999';
-      document.body.appendChild(container);
-      
-      // Add scroll event listener to reposition highlights
-      window.addEventListener('scroll', repositionAllHighlights);
-      window.addEventListener('resize', repositionAllHighlights);
+    const containerId = 'nexusmind-highlights-container';
+    let highlightsContainer = positioningContainer.querySelector<HTMLElement>('#' + containerId);
+
+    if (!highlightsContainer) {
+      if (window.getComputedStyle(positioningContainer).position === 'static') {
+        positioningContainer.style.position = 'relative';
+      }
+      highlightsContainer = document.createElement('div');
+      highlightsContainer.id = containerId;
+      highlightsContainer.style.position = 'absolute';
+      highlightsContainer.style.top = '0';
+      highlightsContainer.style.left = '0';
+      highlightsContainer.style.pointerEvents = 'none';
+      highlightsContainer.style.zIndex = '9999';
+
+      highlightsContainer.style.width = `${scrollElement.scrollWidth}px`;
+      highlightsContainer.style.height = `${scrollElement.scrollHeight}px`;
+
+      positioningContainer.appendChild(highlightsContainer);
+      console.log('Created absolute-position highlights container inside', positioningContainer);
     }
-    
-    // 3. Angular often prevents direct DOM manipulation, so we'll use
-    // a different approach - create an overlay instead of modifying the DOM
+
     const rangeRects = range.getClientRects();
     if (!rangeRects || rangeRects.length === 0) {
       console.warn('No range rects found for selection');
       return false;
     }
-    
-    console.log(`Creating ${rangeRects.length} overlay parts for highlight ${id}`);
-    
-    // 4. Create highlight overlays for each part of the selection
-    const highlightParts = [];
-    
+
+    const containerRect = positioningContainer.getBoundingClientRect();
+
+    // --- CHANGE: Use our new function to get the true scroll position ---
+    const scrollTop = getVirtualScrollTop(scrollElement as HTMLElement);
+    // For horizontal scrolling, scrollLeft is usually reliable, but we'll keep it simple.
+    const scrollLeft = scrollElement.scrollLeft;
+
+    console.log(`Creating ${rangeRects.length} highlight parts with VIRTUAL scrollTop: ${scrollTop}`);
+
     for (let i = 0; i < rangeRects.length; i++) {
       const rect = rangeRects[i];
-      
-      // Skip tiny rectangles (often artifacts)
       if (rect.width < 3 || rect.height < 3) continue;
-      
-      // Create overlay element
+
       const overlay = document.createElement('div');
       overlay.id = `${id}-part-${i}`;
       overlay.className = `nexusmind-highlight-overlay nexusmind-highlight-${color}`;
-      overlay.dataset.color = color;
       overlay.dataset.highlightId = id;
-      overlay.dataset.partIndex = i.toString();
-      
-      // Position the overlay precisely over the text
-      positionOverlay(overlay, rect);
-      
-      // Add to container instead of body
-      container.appendChild(overlay);
-      highlightParts.push(overlay);
-      
-      console.log(`Created overlay part ${i} at (${rect.left + window.scrollX}, ${rect.top + window.scrollY})`);
+
+      overlay.style.position = 'absolute';
+      const top = rect.top - containerRect.top + scrollTop;
+      const left = rect.left - containerRect.left + scrollLeft;
+
+      overlay.style.top = `${top}px`;
+      overlay.style.left = `${left}px`;
+      overlay.style.width = `${rect.width}px`;
+      overlay.style.height = `${rect.height}px`;
+
+      highlightsContainer.appendChild(overlay);
+      console.log(`Created highlight part ${i} at (top: ${top.toFixed(2)}, left: ${left.toFixed(2)})`);
     }
-    
-    if (highlightParts.length === 0) {
-      console.warn('No valid highlight parts created');
-      return false;
-    }
-    
-    // 5. Store the text content and positioning data for future reference
-    const textContent = range.toString();
-    storeHighlightData(id, color, textContent, rangeRects);
-    
-    console.log(`Angular highlight overlay created successfully with ${highlightParts.length} parts`);
+
+    const highlightData = { id, color, text: range.toString(), timestamp: Date.now() };
+    document.body.setAttribute(`data-nexusmind-highlight-${id}`, JSON.stringify(highlightData));
+
+    console.log(`Highlight created successfully with ${rangeRects.length} parts`);
     return true;
+
   } catch (e) {
-    console.error('Error creating Angular highlight overlay:', e);
+    console.error('Error creating highlight overlay:', e);
     return false;
   }
+};
+
+/**
+ * Asynchronously finds the specific scrollable container element for platforms that use one.
+ * @param {string} platform The current AI platform.
+ * @returns {Promise<HTMLElement>} A promise that resolves with the scrollable container or the document body as a fallback.
+ */
+const getScrollContainerForPlatform = async (platform: string): Promise<HTMLElement> => {
+  let selector = '';
+  if (platform === 'Gemini') {
+    selector = '.chat-history-scroll-container';
+  } else if (platform === 'DeepSeek') {
+    selector = '[class*="ds-scroll-area"]';
+  }
+
+  if (selector) {
+    try {
+      // Wait for the element to exist and be visible, with a 5-second timeout.
+      const container = await waitForElement(selector, 5000);
+      console.log(`✅ Found scroll container for ${platform}:`, container);
+      return container;
+    } catch (error) {
+      console.warn(`⚠️ Could not find scroll container with selector "${selector}" within timeout. Falling back to document.body.`);
+      return document.body;
+    }
+  }
+
+  console.warn(`⚠️ No specific scroll container selector for ${platform}. Falling back to document.body.`);
+  return document.body;
 };
 
 /**
@@ -909,81 +980,9 @@ const ensureHighlightStylesExist = () => {
 };
 
 /**
- * Stores highlight data for future reference
+ * Stores highlight data for future reference (simplified since position data is stored in overlay elements)
  */
-const storeHighlightData = (id: string, color: string, text: string, rects: DOMRectList) => {
-  // Store rect positions in case we need to reconstruct highlights
-  const rectData = Array.from(rects).map(rect => ({
-    left: rect.left + window.scrollX,
-    top: rect.top + window.scrollY,
-    width: rect.width,
-    height: rect.height
-  }));
-  
-  const highlightData = {
-    id,
-    color,
-    text,
-    rects: rectData,
-    timestamp: Date.now()
-  };
-  
-  // Store in a custom data attribute on the document body for now
-  // In a full implementation, this would go to chrome.storage.local
-  const dataKey = `data-nexusmind-highlight-${id}`;
-  document.body.setAttribute(dataKey, JSON.stringify(highlightData));
-};
-
 /**
- * Helper function to position an overlay based on a DOMRect
- */
-const positionOverlay = (overlay: HTMLElement, rect: DOMRect) => {
-  overlay.style.position = 'absolute';
-  overlay.style.left = `${rect.left + window.scrollX}px`;
-  overlay.style.top = `${rect.top + window.scrollY}px`;
-  overlay.style.width = `${rect.width}px`;
-  overlay.style.height = `${rect.height}px`;
-  overlay.style.pointerEvents = 'none';
-  overlay.style.zIndex = '9999';
-};
-
-/**
- * Function to reposition all highlights when scrolling or resizing
- */
-const repositionAllHighlights = () => {
-  const container = document.getElementById('nexusmind-highlights-container');
-  if (!container) return;
-  
-  // Find all highlight parts
-  const parts = container.querySelectorAll('.nexusmind-highlight-overlay');
-  
-  // Reposition each part based on stored data
-  parts.forEach(part => {
-    const highlightId = part.getAttribute('data-highlight-id');
-    const partIndex = part.getAttribute('data-part-index');
-    
-    if (!highlightId || !partIndex) return;
-    
-    const dataKey = `data-nexusmind-highlight-${highlightId}`;
-    const highlightDataStr = document.body.getAttribute(dataKey);
-    
-    if (!highlightDataStr) return;
-    
-    try {
-      const highlightData = JSON.parse(highlightDataStr);
-      const rectData = highlightData.rects[parseInt(partIndex, 10)];
-      
-      if (rectData) {
-        // Update position based on current scroll
-        const element = part as HTMLElement;
-        element.style.left = `${rectData.left}px`;
-        element.style.top = `${rectData.top}px`;
-      }
-    } catch (e) {
-      console.error('Error repositioning highlight:', e);
-    }
-  });
-};/**
  * Debug function to help identify correct response container selectors for each platform.
  * Call this in the console to see what selectors are available on the current page.
  */
@@ -1030,4 +1029,40 @@ export const debugResponseContainers = () => {
     console.log('.ai-message:', document.querySelectorAll('.ai-message').length);
     
     console.log('\n=== End Debug Report ===');
+};
+
+/**
+ * Gets the supported features for the current platform
+ * @param platform The current AI platform
+ * @returns Object containing which features are supported
+ */
+export const getSupportedFeatures = (platform: string) => {
+  switch (platform) {
+    case 'ChatGPT':
+    case 'Claude':
+    case 'Grok':
+      return {
+        inlineHighlighting: true,
+        keyboardShortcuts: true,
+        sidePanelSnippets: true,
+        dragAndDrop: true
+      };
+    
+    case 'Gemini':
+    case 'DeepSeek':
+      return {
+        inlineHighlighting: false, // Disabled due to Angular DOM issues
+        keyboardShortcuts: false,  // Disabled due to inline highlighting issues
+        sidePanelSnippets: true,   // Our new primary feature
+        dragAndDrop: true          // Our new primary feature
+      };
+    
+    default:
+      return {
+        inlineHighlighting: true,
+        keyboardShortcuts: true,
+        sidePanelSnippets: true,
+        dragAndDrop: true
+      };
+  }
 };

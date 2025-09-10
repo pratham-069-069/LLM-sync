@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Highlighter from './Highlighter';
+import SidePanel from './SidePanel';
 import type { Highlight } from '../types';
 import { useStorage } from '../hooks/useStorage';
-import { createHighlight, getPlatformName, getResponseSelectors, debugResponseContainers } from '../content-scripts/dom_utils';
+import { createHighlight, getPlatformName, getResponseSelectors, debugResponseContainers, getSupportedFeatures } from '../content-scripts/dom_utils';
 
 /**
  * The root component for all UI injected into the page.
@@ -15,9 +16,16 @@ const UIRoot: React.FC = () => {
     'nexusmind-highlights',
     []
   );
+  const [sidePanelVisible, setSidePanelVisible] = useState(false);
   
   // Ref to store the active selection for direct keyboard access
   const activeSelectionRef = useRef<Selection | null>(null);
+
+  // Get platform-specific features
+  const platform = getPlatformName();
+  const features = getSupportedFeatures(platform);
+  
+  console.log(`NexusMind: Platform detected as ${platform}, features:`, features);
 
   /**
    * Checks if a DOM node is within an AI response container.
@@ -53,6 +61,9 @@ const UIRoot: React.FC = () => {
    * Handles the mouseup event to detect text selections.
    */
   const handleMouseUp = useCallback(() => {
+    // Only show highlighter if inline highlighting is supported
+    if (!features.inlineHighlighting) return;
+    
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);
@@ -76,8 +87,10 @@ const UIRoot: React.FC = () => {
         });
         setCurrentSelection(selection);
         
-        // Show keyboard shortcut hint
-        showKeyboardShortcutHint(rect);
+        // Show keyboard shortcut hint if supported
+        if (features.keyboardShortcuts) {
+          showKeyboardShortcutHint(rect);
+        }
       }
     } else {
       activeSelectionRef.current = null;
@@ -85,12 +98,15 @@ const UIRoot: React.FC = () => {
       setCurrentSelection(null);
       hideKeyboardShortcutHint();
     }
-  }, [isWithinAIResponse]);
+  }, [isWithinAIResponse, features]);
 
   /**
    * Handles keyboard shortcuts for highlighting.
    */
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    // Only proceed if keyboard shortcuts are supported
+    if (!features.keyboardShortcuts) return;
+    
     // Only proceed if Alt+Shift is pressed
     if (!event.altKey || !event.shiftKey) return;
     
@@ -148,14 +164,14 @@ const UIRoot: React.FC = () => {
       // Show notification
       showHighlightNotification(color);
     }
-  }, [isWithinAIResponse]);
+  }, [isWithinAIResponse, features]);
 
   /**
    * Applies the selected color as a highlight.
    */
-  const applyHighlight = (color: Highlight['color']) => {
+  const applyHighlight = async (color: Highlight['color']) => {
     if (!currentSelection || !currentSelection.rangeCount) return;
-
+    
     console.log(`Applying highlight with color: ${color}`);
     const range = currentSelection.getRangeAt(0);
     const text = currentSelection.toString();
@@ -167,7 +183,7 @@ const UIRoot: React.FC = () => {
 
     // Use our DOM utility to apply the highlight
     console.log(`Calling createHighlight for platform: ${getPlatformName()}`);
-    const success = createHighlight(range, color, id);
+    const success = await createHighlight(range, color, id);
     console.log(`Highlight creation result: ${success ? 'Success' : 'Failed'}`);
     
     if (success) {
@@ -187,12 +203,10 @@ const UIRoot: React.FC = () => {
     currentSelection.removeAllRanges();
     setHighlighter(null);
     setCurrentSelection(null);
-  };
-
-  /**
+  };  /**
    * Applies highlight from keyboard shortcut (without using currentSelection state).
    */
-  const applyHighlightFromKeyboard = (color: Highlight['color'], selection: Selection) => {
+  const applyHighlightFromKeyboard = async (color: Highlight['color'], selection: Selection) => {
     if (!selection || !selection.rangeCount) return;
 
     console.log(`Applying keyboard highlight with color: ${color}`);
@@ -206,7 +220,7 @@ const UIRoot: React.FC = () => {
 
     // Use our DOM utility to apply the highlight
     console.log(`Calling createHighlight for platform: ${getPlatformName()}`);
-    const success = createHighlight(range, color, id);
+    const success = await createHighlight(range, color, id);
     console.log(`Highlight creation result: ${success ? 'Success' : 'Failed'}`);
     
     if (success) {
@@ -358,6 +372,9 @@ const UIRoot: React.FC = () => {
 
   // Add direct keyboard handling with capture phase and debug logging
   useEffect(() => {
+    // Only add keyboard listeners if shortcuts are supported
+    if (!features.keyboardShortcuts) return;
+    
     const handleKeyDownDirect = (e: KeyboardEvent) => {
       // Debug logging for all key events
       if (e.altKey || e.ctrlKey) {
@@ -385,7 +402,7 @@ const UIRoot: React.FC = () => {
     // Use capture phase to intercept events before they bubble
     document.addEventListener('keydown', handleKeyDownDirect, true);
     return () => document.removeEventListener('keydown', handleKeyDownDirect, true);
-  }, []);
+  }, [features.keyboardShortcuts]);
 
   useEffect(() => {
     document.addEventListener('mouseup', handleMouseUp);
@@ -414,10 +431,21 @@ const UIRoot: React.FC = () => {
 
   return (
     <>
-      {highlighter && (
+      {/* Conditional rendering based on platform capabilities */}
+      
+      {/* Traditional highlighter for platforms that support inline highlighting */}
+      {features.inlineHighlighting && highlighter && (
         <Highlighter
           position={highlighter}
           onSelectColor={applyHighlight}
+        />
+      )}
+      
+      {/* Side panel for snippet collection (especially useful for Gemini/DeepSeek) */}
+      {features.sidePanelSnippets && (
+        <SidePanel
+          isVisible={sidePanelVisible}
+          onToggle={() => setSidePanelVisible(!sidePanelVisible)}
         />
       )}
     </>

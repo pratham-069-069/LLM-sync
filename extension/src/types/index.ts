@@ -43,6 +43,22 @@ export interface PromptTemplate {
 }
 
 /**
+ * Represents a saved text snippet from AI responses.
+ */
+export interface Snippet {
+  /** A unique identifier for the snippet. */
+  id: string;
+  /** The snippet text content. */
+  text: string;
+  /** The timestamp when the snippet was saved. */
+  timestamp: number;
+  /** The URL where the snippet was saved from. */
+  url: string;
+  /** The AI platform where the snippet originated. */
+  platform: string;
+}
+
+/**
  * Defines the structure of all data stored in chrome.storage.local.
  */
 export interface ExtensionStorage {
@@ -50,4 +66,5 @@ export interface ExtensionStorage {
   'nexusmind-highlights'?: Highlight[];
   'nexusmind-sidekick'?: SidekickSettings;
   'nexusmind-templates'?: PromptTemplate[];
+  'nexusmind-snippets'?: Snippet[];
 }
