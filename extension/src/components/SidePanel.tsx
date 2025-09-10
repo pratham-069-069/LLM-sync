@@ -247,12 +247,64 @@ const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
       
       // Try to find with the first significant part of the text
       const searchText = snippetText.split('\n')[0] || snippetText.substring(0, 50);
+      console.log('🔍 Searching for text using browser find():', searchText);
+      
       const found = (window as any).find(searchText, false, false, true);
       
       if (found) {
-        console.log('✅ Found and highlighted snippet using browser search');
-        flashSelectedText();
+        console.log('✅ Found text using browser search, preparing to scroll...');
+        
+        // Important: Add a longer delay to ensure the browser has time to update the selection properly
+        setTimeout(() => {
+          // Get the current selection AFTER the delay
+          const selection = window.getSelection();
+          
+          if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
+            const range = selection.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+            
+            console.log('📜 Scrolling to selection at:', 
+              `top=${rect.top}, left=${rect.left}, height=${rect.height}, width=${rect.width}`);
+            
+            // Use element.scrollIntoView for more reliable scrolling
+            const parentNode = range.startContainer.parentElement;
+            if (parentNode) {
+              // Scroll with the element API rather than window API for better support
+              parentNode.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center'
+              });
+              
+              // Also use window.scrollTo as a backup approach
+              window.scrollTo({
+                top: window.scrollY + rect.top - (window.innerHeight / 3),
+                behavior: 'smooth'
+              });
+              
+              console.log('📜 Scroll commands executed');
+            } else {
+              console.log('⚠️ Could not find parent element to scroll to');
+            }
+            
+            // Ensure the flash happens after the scroll has time to complete
+            setTimeout(() => flashSelectedText(), 500);
+          } else {
+            console.warn('⚠️ Selection is empty or collapsed after find()');
+            
+            // Try an alternative approach - force another find() call
+            console.log('🔍 Trying alternative find approach...');
+            (window as any).find(searchText, false, false, true);
+            
+            // Try flash anyway
+            flashSelectedText();
+          }
+          
+          showFoundMessage();
+        }, 300); // Longer delay to ensure browser selection is ready
+        
         return true;
+      } else {
+        console.log('❌ Browser find() returned false');
       }
     } catch (error) {
       console.warn('Browser find failed:', error);
@@ -653,7 +705,7 @@ const getPlatformFromUrl = (url: string): string => {
   if (url.includes('claude.ai')) return 'Claude';
   if (url.includes('gemini.google.com')) return 'Gemini';
   if (url.includes('deepseek.com')) return 'DeepSeek';
-  if (url.includes('x.ai')) return 'Grok';
+  if (url.includes('grok.com')) return 'Grok';
   return 'Unknown';
 };
 
