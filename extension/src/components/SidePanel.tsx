@@ -1,7 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useStorage } from '../hooks/useStorage';
 import type { Snippet } from '../types';
-import { getPlatformName, getResponseSelectors } from '../content-scripts/dom_utils';
 
 interface SidePanelProps {
   isVisible: boolean;
@@ -84,179 +83,26 @@ const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
     }
   }, []);
 
-  // Helper function to normalize text for search comparison
-  const normalizeTextForSearch = useCallback((text: string): string => {
-    return text
-      // Replace all types of line breaks and carriage returns with single spaces
-      .replace(/[\r\n]+/g, ' ')
-      // Replace multiple spaces with single spaces
-      .replace(/\s+/g, ' ')
-      // Trim whitespace from start and end
-      .trim()
-      // Convert to lowercase for case-insensitive search
-      .toLowerCase();
-  }, []);
-
-  // Find snippet in the page using targeted DOM search with improved nested content search
+  // Simplified find function that uses browser search directly
   const findSnippetInPage = useCallback((snippetText: string) => {
-    console.log('🔍 Searching for snippet in page:', snippetText.substring(0, 50) + '...');
+    console.log('🔍 Searching for snippet:', snippetText.substring(0, 50) + '...');
     
-    const platform = getPlatformName();
-    const responseSelectors = getResponseSelectors(platform);
-    
-    if (!responseSelectors || responseSelectors.length === 0) {
-      console.warn('No response selectors found for platform:', platform);
-      return findSnippetInDocument(snippetText);
-    }
-    
-    // Normalize the search text
-    const normalizedSnippetText = normalizeTextForSearch(snippetText);
-    console.log('🔍 Normalized snippet text:', normalizedSnippetText.substring(0, 50) + '...');
-    
-    // Track the best match we find
-    let bestMatchElement: Element | null = null;
-    let bestMatchScore = 0;
-    
-    // Search only within AI response containers
-    for (const selector of responseSelectors) {
-      try {
-        const containers = document.querySelectorAll(selector);
-        console.log(`Searching in ${containers.length} containers with selector: ${selector}`);
-        
-        for (const container of Array.from(containers)) {
-          // First try the whole container
-          const containerText = container.textContent || '';
-          const normalizedContainerText = normalizeTextForSearch(containerText);
-          
-          // If the container has the text, search deeper for a more specific element
-          if (normalizedContainerText.includes(normalizedSnippetText)) {
-            console.log('✅ Found text match in container, searching for specific element...');
-            
-            // Find the most specific element with the best match
-            const result = findBestMatchingElement(container, normalizedSnippetText);
-            if (result && result.score > bestMatchScore) {
-              bestMatchElement = result.element;
-              bestMatchScore = result.score;
-            }
-          }
-        }
-      } catch (error) {
-        console.warn(`Invalid selector: ${selector}`, error);
-      }
-    }
-    
-    // If we found a good match, scroll to it
-    if (bestMatchElement) {
-      console.log(`✅ Found best matching element with score ${bestMatchScore}:`, bestMatchElement);
-      scrollToSnippet(bestMatchElement, snippetText);
-      return true;
-    }
-    
-    console.log('❌ Snippet not found in AI response containers, trying document-wide search...');
-    return findSnippetInDocument(snippetText);
-  }, [normalizeTextForSearch]);
-
-  // Helper function to find the most specific element containing the text
-  const findBestMatchingElement = useCallback((container: Element, normalizedSearchText: string): {element: Element, score: number} | null => {
-    // Initialize with the container itself
-    let bestMatch = {
-      element: container, 
-      score: 1
-    };
-    
-    // Recursive function to check each element
-    const checkElement = (element: Element, depth: number) => {
-      // Skip invisible elements
-      const style = window.getComputedStyle(element);
-      if (style.display === 'none' || style.visibility === 'hidden') {
-        return;
-      }
-      
-      const text = element.textContent || '';
-      const normalizedText = normalizeTextForSearch(text);
-      
-      if (normalizedText.includes(normalizedSearchText)) {
-        // Calculate a match score based on:
-        // 1. How close the text length is to the search text (more specific = better)
-        // 2. How deep in the DOM tree (deeper = more specific = better)
-        const lengthRatio = normalizedSearchText.length / normalizedText.length;
-        const depthBonus = depth * 0.1; // Give bonus points for deeper elements
-        const score = lengthRatio + depthBonus;
-        
-        // If this element is a better match, update our best match
-        if (score > bestMatch.score) {
-          bestMatch = { element, score };
-        }
-      }
-      
-      // Check all child elements recursively
-      for (const child of Array.from(element.children)) {
-        checkElement(child, depth + 1);
-      }
-    };
-    
-    // Start recursive search from the container's children
-    for (const child of Array.from(container.children)) {
-      checkElement(child, 1);
-    }
-    
-    return bestMatch.score > 1 ? bestMatch : null;
-  }, [normalizeTextForSearch]);
-
-  // Fallback: search in the entire document
-  const findSnippetInDocument = useCallback((snippetText: string) => {
-    console.log('🔍 Trying document-wide search...');
-    
-    // Normalize the search text
-    const normalizedSnippet = normalizeTextForSearch(snippetText);
-    
-    // Try searching in specific elements that might contain subpoints or nested content
-    const specialSelectors = [
-      // Lists and list items
-      'ul', 'ol', 'li',
-      // Divs with nested content
-      'div[class*="item"]', 'div[class*="point"]', 'div[class*="list"]',
-      // Common container classes
-      '.markdown-body', '.content', '.response',
-      // Canvas-related elements
-      'canvas-elements', '.canvas', '[data-canvas]', '[class*="canvas"]'
-    ];
-    
-    // Try special elements first
-    for (const selector of specialSelectors) {
-      try {
-        const elements = document.querySelectorAll(selector);
-        for (const element of Array.from(elements)) {
-          const text = element.textContent || '';
-          const normalizedText = normalizeTextForSearch(text);
-          
-          if (normalizedText.includes(normalizedSnippet)) {
-            console.log(`✅ Found snippet in ${selector} element`);
-            scrollToSnippet(element, snippetText);
-            return true;
-          }
-        }
-      } catch (e) {
-        // Skip invalid selectors
-      }
-    }
-    
-    // Fall back to browser's find functionality as a last resort
     try {
+      // Clear any existing selection
       window.getSelection()?.removeAllRanges();
       
-      // Try to find with the first significant part of the text
+      // Use a more effective search text - first line or first 50 chars
       const searchText = snippetText.split('\n')[0] || snippetText.substring(0, 50);
-      console.log('🔍 Searching for text using browser find():', searchText);
+      console.log('🔍 Using search text:', searchText);
       
+      // Execute browser's find
       const found = (window as any).find(searchText, false, false, true);
       
       if (found) {
-        console.log('✅ Found text using browser search, preparing to scroll...');
+        console.log('✅ Found text using browser search');
         
-        // Important: Add a longer delay to ensure the browser has time to update the selection properly
+        // Use a delay to ensure the browser has updated the selection
         setTimeout(() => {
-          // Get the current selection AFTER the delay
           const selection = window.getSelection();
           
           if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
@@ -266,16 +112,15 @@ const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
             console.log('📜 Scrolling to selection at:', 
               `top=${rect.top}, left=${rect.left}, height=${rect.height}, width=${rect.width}`);
             
-            // Use element.scrollIntoView for more reliable scrolling
+            // Scroll the selection into view
             const parentNode = range.startContainer.parentElement;
             if (parentNode) {
-              // Scroll with the element API rather than window API for better support
               parentNode.scrollIntoView({
                 behavior: 'smooth',
                 block: 'center'
               });
               
-              // Also use window.scrollTo as a backup approach
+              // Also use window.scrollTo as a backup
               window.scrollTo({
                 top: window.scrollY + rect.top - (window.innerHeight / 3),
                 behavior: 'smooth'
@@ -286,90 +131,29 @@ const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
               console.log('⚠️ Could not find parent element to scroll to');
             }
             
-            // Ensure the flash happens after the scroll has time to complete
+            // Add our custom flash highlight
             setTimeout(() => flashSelectedText(), 500);
+            showFoundMessage();
           } else {
-            console.warn('⚠️ Selection is empty or collapsed after find()');
-            
-            // Try an alternative approach - force another find() call
-            console.log('🔍 Trying alternative find approach...');
+            // Try again if selection is empty
+            console.log('🔍 Retrying search...');
             (window as any).find(searchText, false, false, true);
-            
-            // Try flash anyway
             flashSelectedText();
+            showFoundMessage();
           }
-          
-          showFoundMessage();
-        }, 300); // Longer delay to ensure browser selection is ready
+        }, 300);
         
         return true;
       } else {
-        console.log('❌ Browser find() returned false');
+        console.log('❌ Snippet not found');
+        showNotFoundMessage();
+        return false;
       }
     } catch (error) {
-      console.warn('Browser find failed:', error);
+      console.warn('Search failed:', error);
+      showNotFoundMessage();
+      return false;
     }
-    
-    console.log('❌ Snippet not found anywhere on the page');
-    showNotFoundMessage();
-    return false;
-  }, [normalizeTextForSearch]);
-
-  // Scroll to the snippet and highlight it
-  const scrollToSnippet = useCallback((container: Element, snippetText: string) => {
-    // Scroll the container into view
-    container.scrollIntoView({ 
-      behavior: 'smooth', 
-      block: 'center' 
-    });
-    
-    // Create a temporary highlight effect
-    flashHighlight(container, snippetText);
-  }, []);
-
-  // Flash highlight effect for found text
-  const flashHighlight = useCallback((container: Element, _snippetText: string) => {
-    // Create a temporary overlay to highlight the found text
-    const overlay = document.createElement('div');
-    overlay.style.cssText = `
-      position: absolute;
-      background: rgba(255, 215, 0, 0.3);
-      border: 2px solid #FFD700;
-      border-radius: 4px;
-      pointer-events: none;
-      z-index: 9998;
-      animation: pulseHighlight 2s ease-in-out;
-    `;
-    
-    // Add animation styles
-    if (!document.getElementById('nexusmind-highlight-animation')) {
-      const style = document.createElement('style');
-      style.id = 'nexusmind-highlight-animation';
-      style.textContent = `
-        @keyframes pulseHighlight {
-          0%, 100% { opacity: 0; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.02); }
-        }
-      `;
-      document.head.appendChild(style);
-    }
-    
-    // Position the overlay over the container
-    const rect = container.getBoundingClientRect();
-    overlay.style.top = `${rect.top + window.scrollY}px`;
-    overlay.style.left = `${rect.left + window.scrollX}px`;
-    overlay.style.width = `${rect.width}px`;
-    overlay.style.height = `${rect.height}px`;
-    
-    document.body.appendChild(overlay);
-    
-    // Remove after animation
-    setTimeout(() => {
-      overlay.remove();
-    }, 2000);
-    
-    // Show success message
-    showFoundMessage();
   }, []);
 
   // Flash effect for browser-found text
