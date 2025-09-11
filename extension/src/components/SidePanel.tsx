@@ -1,6 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useStorage } from '../hooks/useStorage';
-import type { Snippet } from '../types';
+import type { Snippet, Highlight } from '../types';
 
 interface SidePanelProps {
   isVisible: boolean;
@@ -13,7 +13,25 @@ interface SidePanelProps {
  */
 const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
   const [snippets, setSnippets] = useStorage<'nexusmind-snippets'>('nexusmind-snippets', []);
+  const [highlights, setHighlights] = useStorage<'nexusmind-highlights'>('nexusmind-highlights', []);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [activeTab, setActiveTab] = useState<'snippets' | 'highlights'>('snippets');
+
+  useEffect(() => {
+    const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
+      if (areaName === 'local' && changes['nexusmind-highlights']) {
+        const newHighlights = changes['nexusmind-highlights'].newValue;
+        console.log('🎨 NexusMind: Detected highlight changes in storage, updating SidePanel.');
+        setHighlights(newHighlights || []);
+      }
+    };
+
+    chrome.storage.onChanged.addListener(handleStorageChange);
+
+    return () => {
+      chrome.storage.onChanged.removeListener(handleStorageChange);
+    };
+  }, [setHighlights]);
 
   // Handle drag and drop events
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -255,6 +273,31 @@ const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
     }, 3000);
   }, []);
 
+  const getHighlightColor = useCallback((color: string, opacity: number) => {
+    const colorMap = {
+      yellow: `rgba(255, 215, 0, ${opacity})`,
+      green: `rgba(50, 205, 50, ${opacity})`,
+      blue: `rgba(0, 191, 255, ${opacity})`,
+      red: `rgba(255, 99, 71, ${opacity})`,
+      purple: `rgba(186, 85, 211, ${opacity})`,
+    };
+    return colorMap[color as keyof typeof colorMap] || colorMap.yellow;
+  }, []);
+
+  const deleteHighlight = useCallback((id: string) => {
+    const currentHighlights = Array.isArray(highlights) ? highlights : [];
+    setHighlights(currentHighlights.filter((h: Highlight) => h.id !== id));
+    
+    const el = document.getElementById(id);
+    if (el) {
+      const parent = el.parentNode;
+      while (el.firstChild) {
+        parent?.insertBefore(el.firstChild, el);
+      }
+      parent?.removeChild(el);
+    }
+  }, [highlights, setHighlights]);
+
   if (!isVisible) {
     return (
       <div className="nexusmind-side-panel-toggle" style={{
@@ -297,188 +340,192 @@ const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
       fontFamily: 'system-ui, -apple-system, sans-serif'
     }}>
       {/* Header */}
-      <div style={{
-        padding: '16px',
-        borderBottom: '1px solid #e5e7eb',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        backgroundColor: '#f9fafb'
-      }}>
-        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#1f2937' }}>
-          AI Snippets
-        </h3>
-        <button
-          onClick={onToggle}
+      <div style={{ padding: '16px', borderBottom: '1px solid #e5e7eb', backgroundColor: '#f9fafb' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#1f2937' }}>NexusMind</h3>
+          <button onClick={onToggle} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: '4px' }}>✕</button>
+        </div>
+        <div style={{ display: 'flex', gap: '4px', backgroundColor: '#e5e7eb', borderRadius: '6px', padding: '2px' }}>
+          <button onClick={() => setActiveTab('snippets')} style={{ flex: 1, padding: '8px 12px', borderRadius: '4px', border: 'none', fontSize: '14px', fontWeight: '500', cursor: 'pointer', backgroundColor: activeTab === 'snippets' ? 'white' : 'transparent', color: activeTab === 'snippets' ? '#1f2937' : '#6b7280', boxShadow: activeTab === 'snippets' ? '0 1px 2px rgba(0, 0, 0, 0.1)' : 'none' }}>
+            📝 Snippets ({Array.isArray(snippets) ? snippets.length : 0})
+          </button>
+          <button onClick={() => setActiveTab('highlights')} style={{ flex: 1, padding: '8px 12px', borderRadius: '4px', border: 'none', fontSize: '14px', fontWeight: '500', cursor: 'pointer', backgroundColor: activeTab === 'highlights' ? 'white' : 'transparent', color: activeTab === 'highlights' ? '#1f2937' : '#6b7280', boxShadow: activeTab === 'highlights' ? '0 1px 2px rgba(0, 0, 0, 0.1)' : 'none' }}>
+            🎨 Highlights ({Array.isArray(highlights) ? highlights.length : 0})
+          </button>
+        </div>
+      </div>
+
+      {activeTab === 'snippets' && (
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
           style={{
-            background: 'none',
-            border: 'none',
-            fontSize: '20px',
-            cursor: 'pointer',
-            padding: '4px'
+            flex: 1,
+            overflowY: 'auto',
+            padding: '16px',
+            transition: 'background-color 0.2s ease',
+            backgroundColor: isDragOver ? '#f0f9ff' : 'transparent',
+            border: isDragOver ? '2px dashed #3b82f6' : '2px dashed transparent',
+            margin: '4px'
           }}
         >
-          ✕
-        </button>
-      </div>
+          {/* Controls */}
+          {Array.isArray(snippets) && snippets.length > 0 && (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '16px',
+              paddingBottom: '8px',
+              borderBottom: '1px solid #f3f4f6'
+            }}>
+              <span style={{ fontSize: '14px', color: '#6b7280' }}>
+                {snippets.length} snippet{snippets.length !== 1 ? 's' : ''}
+              </span>
+              <button
+                onClick={clearAllSnippets}
+                style={{
+                  background: 'none',
+                  border: '1px solid #fca5a5',
+                  color: '#dc2626',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  cursor: 'pointer'
+                }}
+              >
+                Clear All
+              </button>
+            </div>
+          )}
 
-      {/* Drop Zone */}
-      <div
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        style={{
-          margin: '16px',
-          padding: '24px',
-          border: `2px dashed ${isDragOver ? '#4F46E5' : '#d1d5db'}`,
-          borderRadius: '8px',
-          backgroundColor: isDragOver ? '#f0f9ff' : '#f9fafb',
-          textAlign: 'center',
-          color: isDragOver ? '#4F46E5' : '#6b7280',
-          transition: 'all 0.2s ease',
-          cursor: 'pointer'
-        }}
-      >
-        <div style={{ fontSize: '32px', marginBottom: '8px' }}>
-          {isDragOver ? '📥' : '🎯'}
-        </div>
-        <div style={{ fontWeight: '500', marginBottom: '4px' }}>
-          {isDragOver ? 'Drop your text here!' : 'Drag text here to save'}
-        </div>
-        <div style={{ fontSize: '14px', color: '#9ca3af' }}>
-          Select text from the AI response and drag it into this area
-        </div>
-      </div>
-
-      {/* Snippets List */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px' }}>
-        {/* Controls */}
-        {Array.isArray(snippets) && snippets.length > 0 && (
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '16px',
-            padding: '8px 0',
-            borderBottom: '1px solid #f3f4f6'
-          }}>
-            <span style={{ fontSize: '14px', color: '#6b7280' }}>
-              {snippets.length} snippet{snippets.length !== 1 ? 's' : ''}
-            </span>
-            <button
-              onClick={clearAllSnippets}
-              style={{
-                background: 'none',
-                border: '1px solid #fca5a5',
-                color: '#dc2626',
-                padding: '4px 8px',
-                borderRadius: '4px',
-                fontSize: '12px',
-                cursor: 'pointer'
-              }}
-            >
-              Clear All
-            </button>
-          </div>
-        )}
-
-        {/* Snippets */}
-        {Array.isArray(snippets) && snippets.length > 0 ? (
-          snippets.map((snippet: Snippet) => (
-            <div
-              key={snippet.id}
-              style={{
-                marginBottom: '12px',
-                padding: '12px',
-                border: '1px solid #e5e7eb',
-                borderRadius: '8px',
-                backgroundColor: '#ffffff'
-              }}
-            >
-              <div style={{
-                fontSize: '14px',
-                lineHeight: '1.5',
-                color: '#374151',
-                marginBottom: '8px',
-                wordBreak: 'break-word'
-              }}>
-                {snippet.text.length > 200 
-                  ? snippet.text.substring(0, 200) + '...'
-                  : snippet.text
-                }
-              </div>
-              
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                fontSize: '12px',
-                color: '#9ca3af'
-              }}>
-                <span>
-                  {snippet.platform} • {new Date(snippet.timestamp).toLocaleDateString()}
-                </span>
-                <div>
-                  <button
-                    onClick={() => findSnippetInPage(snippet.text)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#6b7280',
-                      cursor: 'pointer',
-                      marginRight: '8px',
-                      fontSize: '16px'
-                    }}
-                    title="Find on page"
-                  >
-                    🔍
-                  </button>
-                  <button
-                    onClick={() => copySnippet(snippet.text)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#6b7280',
-                      cursor: 'pointer',
-                      marginRight: '8px',
-                      fontSize: '16px'
-                    }}
-                    title="Copy to clipboard"
-                  >
-                    📋
-                  </button>
-                  <button
-                    onClick={() => deleteSnippet(snippet.id)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#ef4444',
-                      cursor: 'pointer',
-                      fontSize: '16px'
-                    }}
-                    title="Delete snippet"
-                  >
-                    🗑️
-                  </button>
+          {/* Snippets */}
+          {Array.isArray(snippets) && snippets.length > 0 ? (
+            snippets.map((snippet: Snippet) => (
+              <div
+                key={snippet.id}
+                style={{
+                  marginBottom: '12px',
+                  padding: '12px',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '8px',
+                  backgroundColor: '#ffffff'
+                }}
+              >
+                <div style={{
+                  fontSize: '14px',
+                  lineHeight: '1.5',
+                  color: '#374151',
+                  marginBottom: '8px',
+                  wordBreak: 'break-word'
+                }}>
+                  {snippet.text.length > 200 
+                    ? snippet.text.substring(0, 200) + '...'
+                    : snippet.text
+                  }
+                </div>
+                
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: '12px',
+                  color: '#9ca3af'
+                }}>
+                  <span>
+                    {snippet.platform} • {new Date(snippet.timestamp).toLocaleDateString()}
+                  </span>
+                  <div>
+                    <button
+                      onClick={() => findSnippetInPage(snippet.text)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#6b7280',
+                        cursor: 'pointer',
+                        marginRight: '8px',
+                        fontSize: '16px'
+                      }}
+                      title="Find on page"
+                    >
+                      🔍
+                    </button>
+                    <button
+                      onClick={() => copySnippet(snippet.text)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#6b7280',
+                        cursor: 'pointer',
+                        marginRight: '8px',
+                        fontSize: '16px'
+                      }}
+                      title="Copy to clipboard"
+                    >
+                      📋
+                    </button>
+                    <button
+                      onClick={() => deleteSnippet(snippet.id)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#ef4444',
+                        cursor: 'pointer',
+                        fontSize: '16px'
+                      }}
+                      title="Delete snippet"
+                    >
+                      🗑️
+                    </button>
+                  </div>
                 </div>
               </div>
+            ))
+          ) : (
+            <div style={{
+              textAlign: 'center',
+              color: '#9ca3af',
+              padding: '40px 20px',
+              fontSize: '14px'
+            }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>📝</div>
+              <div style={{ fontWeight: '500', marginBottom: '8px' }}>No snippets yet</div>
+              <div>
+                Start by dragging text from AI responses into the drop zone above
+              </div>
             </div>
-          ))
-        ) : (
-          <div style={{
-            textAlign: 'center',
-            color: '#9ca3af',
-            padding: '40px 20px',
-            fontSize: '14px'
-          }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📝</div>
-            <div style={{ fontWeight: '500', marginBottom: '8px' }}>No snippets yet</div>
-            <div>
-              Start by dragging text from AI responses into the drop zone above
+          )}
+        </div>
+      )}
+
+      {activeTab === 'highlights' && (
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+          {Array.isArray(highlights) && highlights.length > 0 ? (
+            highlights.map((highlight: Highlight) => (
+              <div key={highlight.id} style={{ marginBottom: '12px', padding: '12px', borderRadius: '8px', backgroundColor: getHighlightColor(highlight.color, 0.15), borderLeft: `4px solid ${getHighlightColor(highlight.color, 1)}` }}>
+                <div style={{ fontSize: '14px', lineHeight: '1.5', color: '#374151', marginBottom: '8px', wordBreak: 'break-word' }}>
+                  {highlight.text.length > 200 ? highlight.text.substring(0, 200) + '...' : highlight.text}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#6b7280' }}>
+                  <span>{highlight.color} • {new Date(highlight.timestamp).toLocaleDateString()}</span>
+                  <div>
+                    <button onClick={() => findSnippetInPage(highlight.text)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', marginRight: '8px', fontSize: '16px' }} title="Find highlight in page">🔍</button>
+                    <button onClick={() => copySnippet(highlight.text)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', marginRight: '8px', fontSize: '16px' }} title="Copy to clipboard">📋</button>
+                    <button onClick={() => deleteHighlight(highlight.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '16px' }} title="Delete highlight">🗑️</button>
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div style={{ textAlign: 'center', color: '#9ca3af', padding: '40px 20px', fontSize: '14px' }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎨</div>
+              <div style={{ fontWeight: '500', marginBottom: '8px' }}>No highlights yet</div>
+              <div>Create highlights by selecting text and using the color picker or keyboard shortcuts (Alt+Shift+1-5)</div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

@@ -16,6 +16,8 @@ export interface Highlight {
   color: 'yellow' | 'green' | 'blue' | 'red' | 'purple';
   /** The timestamp when the highlight was created. */
   timestamp: number;
+  /** The AI platform where the highlight was made. */
+  platform: string;
 }
 
 /**

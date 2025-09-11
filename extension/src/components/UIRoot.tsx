@@ -174,7 +174,9 @@ const UIRoot: React.FC = () => {
     
     console.log(`Applying highlight with color: ${color}`);
     const range = currentSelection.getRangeAt(0);
-    const text = currentSelection.toString();
+    const text = currentSelection.toString().trim();
+    if (!text) return;
+
     console.log(`Selected text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
     
     // Create a unique ID for the highlight
@@ -194,8 +196,9 @@ const UIRoot: React.FC = () => {
         text,
         color,
         timestamp: Date.now(),
+        platform: getPlatformName(),
       };
-      setHighlights([...(highlights || []), newHighlight]);
+      setHighlights([newHighlight, ...(highlights || [])]);
       console.log(`Highlight saved to storage, total highlights: ${(highlights || []).length + 1}`);
     }
 
@@ -211,7 +214,9 @@ const UIRoot: React.FC = () => {
 
     console.log(`Applying keyboard highlight with color: ${color}`);
     const range = selection.getRangeAt(0);
-    const text = selection.toString();
+    const text = selection.toString().trim();
+    if (!text) return;
+    
     console.log(`Selected text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
     
     // Create a unique ID for the highlight
@@ -231,8 +236,9 @@ const UIRoot: React.FC = () => {
         text,
         color,
         timestamp: Date.now(),
+        platform: getPlatformName(),
       };
-      setHighlights([...(highlights || []), newHighlight]);
+      setHighlights([newHighlight, ...(highlights || [])]);
       console.log(`Highlight saved to storage, total highlights: ${(highlights || []).length + 1}`);
       
       // Show notification
@@ -423,11 +429,94 @@ const UIRoot: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
+  const waitForPageContent = useCallback(() => {
+    const platform = getPlatformName();
+    const responseSelectors = getResponseSelectors(platform);
+    
+    return new Promise<void>((resolve) => {
+      if (responseSelectors.length > 0 && document.querySelector(responseSelectors[0])) {
+        return resolve();
+      }
+      const observer = new MutationObserver((_mutations, obs) => {
+        if (responseSelectors.length > 0 && document.querySelector(responseSelectors[0])) {
+          obs.disconnect();
+          resolve();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      setTimeout(() => { // Failsafe timeout
+        observer.disconnect();
+        resolve();
+      }, 10000);
+    });
+  }, []);
+
+  const findTextInElement = useCallback((element: Element, text: string): Range | null => {
+    const normalizedSearchText = text.replace(/\s+/g, ' ').trim();
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let node;
+    while (node = walker.nextNode()) {
+      const nodeText = node.textContent || '';
+      const start = nodeText.indexOf(normalizedSearchText);
+      if (start > -1) {
+        const range = document.createRange();
+        range.setStart(node, start);
+        range.setEnd(node, start + normalizedSearchText.length);
+        return range;
+      }
+    }
+    return null;
+  }, []);
+
+  const restoreSingleHighlight = useCallback(async (highlight: Highlight) => {
+    // Only restore highlights for the current platform
+    if (highlight.platform !== getPlatformName()) return;
+
+    const platform = getPlatformName();
+    const responseSelectors = getResponseSelectors(platform);
+    for (const selector of responseSelectors) {
+      const containers = document.querySelectorAll(selector);
+      for (const container of Array.from(containers)) {
+        const range = findTextInElement(container, highlight.text);
+        if (range) {
+          // Check if the highlight already exists to prevent duplicates
+          if (document.getElementById(highlight.id)) {
+            console.log(`Skipping duplicate highlight: ${highlight.id}`);
+            return;
+          }
+          await createHighlight(range, highlight.color, highlight.id);
+          console.log(`✅ Restored highlight: ${highlight.id}`);
+          return;
+        }
+      }
+    }
+    console.warn(`Could not find text to restore highlight: ${highlight.text.substring(0, 50)}...`);
+  }, [findTextInElement]);
+
   // Re-apply existing highlights on page load or when highlights change
   useEffect(() => {
-    // TODO: Implement logic to re-apply highlights from storage.
-    // This is a complex task that requires finding the text on the page.
-  }, [highlights]);
+    const restoreHighlights = async () => {
+      if (!features.inlineHighlighting || !highlights || !Array.isArray(highlights)) return;
+      
+      await waitForPageContent();
+      
+      const currentUrl = window.location.href;
+      const pageHighlights = highlights.filter(h => h.url === currentUrl);
+      
+      console.log(`Found ${pageHighlights.length} highlights for this page. Restoring...`);
+      
+      for (const highlight of pageHighlights) {
+        // A short delay between restorations can help with page rendering
+        await new Promise(res => setTimeout(res, 50));
+        await restoreSingleHighlight(highlight);
+      }
+      console.log('Finished restoring highlights.');
+    };
+    
+    // Use a timeout to ensure the page has settled before restoring
+    const timer = setTimeout(restoreHighlights, 500);
+    return () => clearTimeout(timer);
+  }, [highlights, features.inlineHighlighting, waitForPageContent, restoreSingleHighlight]);
 
   return (
     <>
