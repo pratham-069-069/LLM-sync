@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useStorage } from '../hooks/useStorage';
 import type { Snippet, Highlight } from '../types';
+import SidekickPanel from './SidekickPanel';
 
 interface SidePanelProps {
   isVisible: boolean;
@@ -15,7 +16,7 @@ const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
   const [snippets, setSnippets] = useStorage<'nexusmind-snippets'>('nexusmind-snippets', []);
   const [highlights, setHighlights] = useStorage<'nexusmind-highlights'>('nexusmind-highlights', []);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [activeTab, setActiveTab] = useState<'snippets' | 'highlights'>('snippets');
+  const [activeTab, setActiveTab] = useState<'snippets' | 'highlights' | 'sidekick'>('snippets');
 
   useEffect(() => {
     const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
@@ -352,6 +353,9 @@ const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
           <button onClick={() => setActiveTab('highlights')} style={{ flex: 1, padding: '8px 12px', borderRadius: '4px', border: 'none', fontSize: '14px', fontWeight: '500', cursor: 'pointer', backgroundColor: activeTab === 'highlights' ? 'white' : 'transparent', color: activeTab === 'highlights' ? '#1f2937' : '#6b7280', boxShadow: activeTab === 'highlights' ? '0 1px 2px rgba(0, 0, 0, 0.1)' : 'none' }}>
             🎨 Highlights ({Array.isArray(highlights) ? highlights.length : 0})
           </button>
+          <button onClick={() => setActiveTab('sidekick')} style={{ flex: 1, padding: '8px 12px', borderRadius: '4px', border: 'none', fontSize: '14px', fontWeight: '500', cursor: 'pointer', backgroundColor: activeTab === 'sidekick' ? 'white' : 'transparent', color: activeTab === 'sidekick' ? '#1f2937' : '#6b7280', boxShadow: activeTab === 'sidekick' ? '0 1px 2px rgba(0, 0, 0, 0.1)' : 'none' }}>
+            🤖 Sidekick
+          </button>
         </div>
       </div>
 
@@ -525,6 +529,10 @@ const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
             </div>
           )}
         </div>
+      )}
+
+      {activeTab === 'sidekick' && (
+        <SidekickPanel />
       )}
     </div>
   );

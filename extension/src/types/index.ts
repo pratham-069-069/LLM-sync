@@ -21,14 +21,14 @@ export interface Highlight {
 }
 
 /**
- * Settings for the AI Sidekick feature.
+ * Configuration for the AI Sidekick feature.
  */
-export interface SidekickSettings {
-  /** Whether the sidekick is enabled by default. */
+export interface SidekickConfig {
+  /** Whether the sidekick is enabled. */
   enabled: boolean;
-  /** The default AI platform to use for the sidekick. */
+  /** The AI platform to use for the sidekick. */
   platform: 'Claude' | 'ChatGPT' | 'Gemini';
-  /** The default role for the sidekick to adopt. */
+  /** The role for the sidekick to adopt. */
   role: 'Critic' | 'Fact-Checker' | 'Alternative View';
 }
 
@@ -66,7 +66,7 @@ export interface Snippet {
 export interface ExtensionStorage {
   'nexusmind-api-key'?: string;
   'nexusmind-highlights'?: Highlight[];
-  'nexusmind-sidekick'?: SidekickSettings;
+  'nexusmind-sidekick-config'?: SidekickConfig;
   'nexusmind-templates'?: PromptTemplate[];
   'nexusmind-snippets'?: Snippet[];
 }
