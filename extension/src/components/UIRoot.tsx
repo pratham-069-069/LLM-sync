@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import Highlighter from './Highlighter';
 import SidePanel from './SidePanel';
+import SidekickResponse from './SidekickResponse';
 import type { Highlight } from '../types';
 import { useStorage } from '../hooks/useStorage';
 import { createHighlight, getPlatformName, getResponseSelectors, debugResponseContainers, getSupportedFeatures } from '../content-scripts/dom_utils';
+import { SidekickManager } from '../services/SidekickManager';
 
 /**
  * The root component for all UI injected into the page.
@@ -17,6 +20,13 @@ const UIRoot: React.FC = () => {
     []
   );
   const [sidePanelVisible, setSidePanelVisible] = useState(false);
+  const [sidekickConfig] = useStorage<'nexusmind-sidekick-config'>(
+    'nexusmind-sidekick-config',
+    { enabled: false, platform: 'Gemini', role: 'Critic' }
+  );
+  const [sidekickResponses, setSidekickResponses] = useState<{
+    [targetId: string]: { analysis: string; role: string; element: HTMLElement }
+  }>({});
   
   // Ref to store the active selection for direct keyboard access
   const activeSelectionRef = useRef<Selection | null>(null);
@@ -376,6 +386,36 @@ const UIRoot: React.FC = () => {
     }
   };
 
+  // Render the SidekickResponse components using portals
+  const renderSidekickResponses = () => {
+    return Object.entries(sidekickResponses).map(([targetId, { analysis, role, element }]) => {
+      // Skip if the element is no longer in the DOM
+      if (!document.body.contains(element)) {
+        return null;
+      }
+      
+      // Create a container for the sidekick response if it doesn't exist
+      let container = element.nextElementSibling;
+      if (!container || !container.classList.contains('nexusmind-sidekick-container')) {
+        container = document.createElement('div');
+        container.classList.add('nexusmind-sidekick-container');
+        if (element.nextSibling) {
+          element.parentNode?.insertBefore(container, element.nextSibling);
+        } else {
+          element.parentNode?.appendChild(container);
+        }
+      }
+      
+      return createPortal(
+        <SidekickResponse 
+          key={targetId} 
+          analysis={{ role, content: analysis }}
+        />,
+        container as HTMLElement
+      );
+    }).filter(Boolean); // Remove null entries
+  };
+
   // Add direct keyboard handling with capture phase and debug logging
   useEffect(() => {
     // Only add keyboard listeners if shortcuts are supported
@@ -409,6 +449,52 @@ const UIRoot: React.FC = () => {
     document.addEventListener('keydown', handleKeyDownDirect, true);
     return () => document.removeEventListener('keydown', handleKeyDownDirect, true);
   }, [features.keyboardShortcuts]);
+
+  // Initialize SidekickManager when config changes
+  useEffect(() => {
+    const sidekickManager = SidekickManager.getInstance();
+    
+    if (sidekickConfig && sidekickConfig.enabled) {
+      console.log('NexusMind: Starting SidekickManager with config:', sidekickConfig);
+      sidekickManager.start(sidekickConfig);
+    } else {
+      sidekickManager.stop();
+    }
+    
+    return () => {
+      sidekickManager.stop();
+    };
+  }, [sidekickConfig]);
+
+  // Listen for sidekick response events
+  useEffect(() => {
+    const handleSidekickResponse = (event: CustomEvent) => {
+      const { targetElement, analysis, config } = event.detail;
+      
+      // Generate a unique ID for this response
+      const targetId = targetElement.dataset.nexusmindId || `nexusmind-response-${Date.now()}`;
+      if (!targetElement.dataset.nexusmindId) {
+        targetElement.dataset.nexusmindId = targetId;
+      }
+      
+      setSidekickResponses(prev => ({
+        ...prev,
+        [targetId]: {
+          analysis,
+          role: config.role,
+          element: targetElement
+        }
+      }));
+    };
+
+    document.addEventListener('nexusmind-sidekick-response', 
+      handleSidekickResponse as EventListener);
+    
+    return () => {
+      document.removeEventListener('nexusmind-sidekick-response', 
+        handleSidekickResponse as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     document.addEventListener('mouseup', handleMouseUp);
@@ -537,6 +623,9 @@ const UIRoot: React.FC = () => {
           onToggle={() => setSidePanelVisible(!sidePanelVisible)}
         />
       )}
+
+      {/* Render sidekick analyses */}
+      {renderSidekickResponses()}
     </>
   );
 };

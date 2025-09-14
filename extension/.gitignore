@@ -1,0 +1,2 @@
+# Add .env to this file to keep it out of version control
+.env
