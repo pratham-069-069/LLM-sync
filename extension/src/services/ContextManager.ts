@@ -69,6 +69,14 @@ class ContextManager {
       response: lastPrimaryResponse?.content,
     };
   }
+
+  public getConversationHistory(): ContextItem[] {
+    return this.currentContext?.history || [];
+  }
+
+  public getCurrentContext(): ConversationContext | null {
+    return this.currentContext;
+  }
 }
 
 export default new ContextManager();

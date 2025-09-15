@@ -72,6 +72,87 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       });
   }
 
+  // ✨ NEW: Handler for executing Sidekick tasks with Worker AIs
+  if (msg.type === 'EXECUTE_SIDEKICK_TASK') {
+    console.log(`🚀 Background: Received EXECUTE_SIDEKICK_TASK for ${msg.platform}`);
+    
+    const executeSidekickTask = async () => {
+      const startTime = Date.now();
+      
+      try {
+        const available = await getAvailablePlatforms();
+        const targetPlatform = available.find(p => p.platform.toUpperCase() === msg.platform.toUpperCase());
+
+        if (!targetPlatform) {
+          console.error(`❌ Background: Worker AI platform ${msg.platform} not found in available tabs`);
+          sendResponse({
+            success: false,
+            error: `Worker AI platform "${msg.platform}" not available. Please open ${msg.platform} in a tab.`
+          });
+          return;
+        }
+
+        console.log(`🔧 Background: Found ${msg.platform} tab (ID: ${targetPlatform.tabId}), executing task...`);
+
+        // Step 1: Inject the intelligent meta-prompt into the Worker AI
+        await chrome.tabs.sendMessage(targetPlatform.tabId, {
+          type: 'INJECT_PROMPT',
+          prompt: msg.prompt
+        });
+
+        console.log(`🔧 Background: Prompt injected into ${msg.platform}, waiting for response...`);
+
+        // Step 2: Wait for the Worker AI to generate a response
+        // TODO: Make this more robust with DOM observation instead of fixed delay
+        const waitTime = 15000; // 15 seconds - could be configurable
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+
+        // Step 3: Read the Worker AI's analysis response
+        const response = await chrome.tabs.sendMessage(targetPlatform.tabId, {
+          type: 'READ_LATEST_RESPONSE'
+        });
+
+        const executionTime = Date.now() - startTime;
+
+        if (response && response.success && response.response) {
+          console.log(`✅ Background: Worker AI analysis completed in ${executionTime}ms`);
+          
+          sendResponse({
+            success: true,
+            analysis: response.response,
+            executionTime: executionTime,
+            workerAI: msg.platform,
+            metadata: {
+              ...msg.metadata,
+              executionTime,
+              workerTabId: targetPlatform.tabId
+            }
+          });
+        } else {
+          console.error(`❌ Background: Failed to read response from ${msg.platform}:`, response?.error);
+          sendResponse({
+            success: false,
+            error: `Failed to read response from ${msg.platform}: ${response?.error || 'Unknown error'}`,
+            executionTime: executionTime
+          });
+        }
+
+      } catch (error) {
+        const executionTime = Date.now() - startTime;
+        console.error(`❌ Background: Error during ${msg.platform} task execution:`, error);
+        
+        sendResponse({
+          success: false,
+          error: `Error executing task with ${msg.platform}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          executionTime: executionTime
+        });
+      }
+    };
+
+    executeSidekickTask();
+    return true; // Keep message channel open for async response
+  }
+
   // ✨ NEW: Handler for chaining prompts between platforms
   if (msg.type === 'CHAIN_PROMPT') {
     console.log('Background: Received CHAIN_PROMPT with chain:', msg.chain);

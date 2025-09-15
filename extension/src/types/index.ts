@@ -22,13 +22,26 @@ export interface Highlight {
 
 /**
  * Configuration for the AI Sidekick feature.
+ * Separates the Mediator (intelligence/brain) from the Worker (analysis executor).
  */
 export interface SidekickConfig {
   /** Whether the sidekick is enabled. */
   enabled: boolean;
-  /** The AI platform to use for the sidekick. */
+  /** The Worker AI platform to perform the analysis (the "doer"). */
+  workerAI: 'Claude' | 'ChatGPT' | 'Gemini';
+  /** The role for the Worker AI to adopt during analysis. */
+  role: 'Critic' | 'Fact-Checker' | 'Alternative View' | 'Developer' | 'Analyst';
+  /** Whether to use the Mediator (Gemini) for intelligent meta-prompt generation. */
+  useMediator: boolean;
+}
+
+/**
+ * DEPRECATED: Legacy platform field for backward compatibility
+ * @deprecated Use workerAI instead
+ */
+export interface LegacySidekickConfig {
+  enabled: boolean;
   platform: 'Claude' | 'ChatGPT' | 'Gemini';
-  /** The role for the sidekick to adopt. */
   role: 'Critic' | 'Fact-Checker' | 'Alternative View';
 }
 
