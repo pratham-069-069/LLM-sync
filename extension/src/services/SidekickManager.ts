@@ -23,6 +23,10 @@ export class SidekickManager {
   private currentConfig: SidekickConfig | null = null;
   private platformName: string;
   private processingNodes: WeakSet<HTMLElement> = new WeakSet();
+  // BUG FIX 2: Add throttling to prevent infinite loops
+  private lastProcessTime: number = 0;
+  private readonly PROCESS_THROTTLE_MS = 3000; // Minimum 3 seconds between processing same type of message
+  private processedMessageHashes: Set<string> = new Set(); // Track processed messages by content hash
 
   private constructor() {
     this.platformName = getPlatformName();
@@ -72,6 +76,8 @@ export class SidekickManager {
     }
     this.isSidekickActive = false;
     this.currentConfig = null;
+    // BUG FIX 2: Clear processed message hashes to prevent memory leaks
+    this.processedMessageHashes.clear();
     console.log('🤖 SidekickManager: Stopped.');
   }
 
@@ -117,6 +123,21 @@ export class SidekickManager {
 
     this.observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
+        // BUG FIX 2: Filter out mutations caused by our own UI changes
+        const isFromSidekick = Array.from(mutation.addedNodes).some(node => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const element = node as HTMLElement;
+            return element.classList.contains('nexusmind-') || 
+                   element.id?.startsWith('nexusmind-') ||
+                   element.querySelector?.('[class*="nexusmind-"], [id*="nexusmind-"]');
+          }
+          return false;
+        });
+        
+        if (isFromSidekick) {
+          continue; // Skip processing mutations from our own UI
+        }
+
         mutation.addedNodes.forEach(node => {
           if (node.nodeType === Node.ELEMENT_NODE) {
             const element = node as HTMLElement;
@@ -167,6 +188,15 @@ export class SidekickManager {
         '.user-message',
         '[class*="user"]',
         '[role="presentation"] + [role="presentation"]'
+      ],
+      'Grok': [
+        // BUG FIX 1: Add Grok-specific selectors for user prompts
+        'div[data-testid="grok-user-message"]',
+        'div[class*="user-message"]',
+        'div[dir="auto"][class*="break-words"]:has(p)',
+        'div[class*="prose"] div[dir="auto"]',
+        '[data-testid*="user"] p',
+        'div[class*="message-bubble"][class*="user"] p'
       ]
     };
 
@@ -200,10 +230,18 @@ export class SidekickManager {
   private async processLatestMessage(botResponseElement: HTMLElement) {
     if (!this.isSidekickActive || !this.currentConfig) return;
 
+    // BUG FIX 2: Implement throttling to prevent rapid successive processing
+    const now = Date.now();
+    if (now - this.lastProcessTime < this.PROCESS_THROTTLE_MS) {
+      console.log(`🤖 SidekickManager: Throttled - waiting ${this.PROCESS_THROTTLE_MS - (now - this.lastProcessTime)}ms`);
+      return;
+    }
+
     console.log('🤖 SidekickManager: Processing latest message with new multi-step flow...');
     
     // Mark as processing to prevent duplicate processing
     this.processingNodes.add(botResponseElement);
+    this.lastProcessTime = now;
 
     try {
       // STEP 1: Extract conversation context (unchanged)
@@ -211,6 +249,13 @@ export class SidekickManager {
       
       if (!botResponse || botResponse.length < 3) {
         console.warn('🤖 SidekickManager: Empty or too short response text, skipping analysis');
+        return;
+      }
+
+      // BUG FIX 2: Check for duplicate content using hash to prevent processing same message multiple times
+      const messageHash = this.generateMessageHash(botResponse);
+      if (this.processedMessageHashes.has(messageHash)) {
+        console.log('🤖 SidekickManager: Message already processed (duplicate content), skipping');
         return;
       }
 
@@ -222,6 +267,16 @@ export class SidekickManager {
       }
 
       console.log(`🤖 SidekickManager: Context - User: "${userPrompt.substring(0, 50)}..." AI: "${botResponse.substring(0, 50)}..."`);
+
+      // Mark this message as processed
+      this.processedMessageHashes.add(messageHash);
+      
+      // Clean up old hashes to prevent memory leaks (keep only last 50)
+      if (this.processedMessageHashes.size > 50) {
+        const hashesArray = Array.from(this.processedMessageHashes);
+        this.processedMessageHashes.clear();
+        hashesArray.slice(-25).forEach(hash => this.processedMessageHashes.add(hash));
+      }
 
       // STEP 2: Store conversation context (unchanged)
       ContextManager.addUserMessage(userPrompt);
@@ -257,7 +312,7 @@ export class SidekickManager {
       // STEP 4: Send EXECUTE_SIDEKICK_TASK message to background script
       console.log(`🚀 SidekickManager: Sending EXECUTE_SIDEKICK_TASK to background for ${this.currentConfig.workerAI}...`);
       
-      const message = {
+      chrome.runtime.sendMessage({
         type: 'EXECUTE_SIDEKICK_TASK',
         platform: this.currentConfig.workerAI,
         prompt: intelligentMetaPrompt,
@@ -265,90 +320,102 @@ export class SidekickManager {
           originalUserPrompt: userPrompt,
           primaryResponse: botResponse,
           role: this.currentConfig.role,
-          usedMediator: this.currentConfig.useMediator,
-          sourceTabId: undefined // Will be set by background script
+          usedMediator: this.currentConfig.useMediator
         }
-      };
-
-      // Use chrome.runtime.sendMessage with promise-based approach
-      const executeTask = () => {
-        return new Promise((resolve, reject) => {
-          chrome.runtime.sendMessage(message, (response) => {
-            if (chrome.runtime.lastError) {
-              reject(chrome.runtime.lastError);
-            } else {
-              resolve(response);
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('❌ SidekickManager: Error communicating with background script:', chrome.runtime.lastError);
+          
+          // BUG FIX 3: Dispatch error event for UI refresh
+          this.dispatchUIUpdateEvent('nexusmind-sidekick-error', {
+            targetElement: botResponseElement,
+            error: `Communication error: ${chrome.runtime.lastError.message}`,
+            metadata: {
+              workerAI: this.currentConfig?.workerAI || 'unknown',
+              role: this.currentConfig?.role || 'unknown'
             }
           });
-        });
-      };
+          return;
+        }
 
-      try {
-        const response = await executeTask() as any;
-        
         if (response && response.success) {
           console.log('✅ SidekickManager: Worker AI analysis received from background script');
           
           // Store the analysis from the Worker AI
           ContextManager.addSidekickResponseMessage(response.analysis);
 
-          // Dispatch event to update the UI
-          document.dispatchEvent(new CustomEvent('nexusmind-sidekick-response', {
-            detail: {
-              targetElement: botResponseElement,
-              analysis: response.analysis,
-              metadata: {
-                workerAI: this.currentConfig.workerAI,
-                role: this.currentConfig.role,
-                usedMediator: this.currentConfig.useMediator,
-                executionTime: response.executionTime
-              }
+          // BUG FIX 3: Dispatch event to update the UI with proper refresh
+          this.dispatchUIUpdateEvent('nexusmind-sidekick-response', {
+            targetElement: botResponseElement,
+            analysis: response.analysis,
+            metadata: {
+              workerAI: this.currentConfig?.workerAI || 'unknown',
+              role: this.currentConfig?.role || 'unknown',
+              usedMediator: this.currentConfig?.useMediator || false,
+              executionTime: response.executionTime
             }
-          }));
+          });
 
           console.log('🎉 SidekickManager: Multi-step analysis complete and UI updated');
         } else {
           console.error('❌ SidekickManager: Worker AI task execution failed:', response?.error);
           
-          // Dispatch error event for UI feedback
-          document.dispatchEvent(new CustomEvent('nexusmind-sidekick-error', {
-            detail: {
-              targetElement: botResponseElement,
-              error: response?.error || 'Unknown error during Worker AI execution',
-              metadata: {
-                workerAI: this.currentConfig.workerAI,
-                role: this.currentConfig.role
-              }
-            }
-          }));
-        }
-      } catch (error) {
-        console.error('❌ SidekickManager: Error communicating with background script:', error);
-        
-        // Dispatch error event
-        document.dispatchEvent(new CustomEvent('nexusmind-sidekick-error', {
-          detail: {
+          // BUG FIX 3: Dispatch error event for UI feedback with refresh
+          this.dispatchUIUpdateEvent('nexusmind-sidekick-error', {
             targetElement: botResponseElement,
-            error: `Communication error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            error: response?.error || 'Unknown error during Worker AI execution',
             metadata: {
-              workerAI: this.currentConfig.workerAI,
-              role: this.currentConfig.role
+              workerAI: this.currentConfig?.workerAI || 'unknown',
+              role: this.currentConfig?.role || 'unknown'
             }
-          }
-        }));
-      }
+          });
+        }
+      });
 
     } catch (error) {
       console.error('❌ SidekickManager: Critical error during multi-step analysis:', error);
     } finally {
       // Clean up processing state after a delay
-      setTimeout(() => this.processingNodes.delete(botResponseElement), 2000);
+      setTimeout(() => this.processingNodes.delete(botResponseElement), 5000);
     }
   }
 
   /**
    * UTILITY METHODS FOR UI INTEGRATION
    */
+
+  /**
+   * BUG FIX 2: Generate a simple hash for message content to detect duplicates
+   */
+  private generateMessageHash(message: string): string {
+    // Simple hash function for duplicate detection
+    let hash = 0;
+    const content = message.substring(0, 200); // Use first 200 chars for hash
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return hash.toString();
+  }
+
+  /**
+   * BUG FIX 3: Enhanced UI event dispatch with proper refresh mechanism
+   */
+  private dispatchUIUpdateEvent(eventName: string, detail: any) {
+    // Dispatch the event
+    document.dispatchEvent(new CustomEvent(eventName, { detail }));
+    
+    // Force UI refresh by triggering a custom refresh event
+    setTimeout(() => {
+      document.dispatchEvent(new CustomEvent('nexusmind-force-ui-refresh', { 
+        detail: { 
+          timestamp: Date.now(),
+          source: 'SidekickManager' 
+        } 
+      }));
+    }, 100);
+  }
 
   /**
    * Check if the Mediator is enabled in current configuration

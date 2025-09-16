@@ -7,10 +7,11 @@
  * - Enhancing user prompts
  * - Making intelligent routing decisions
  * 
- * This service uses the Gemini Flash API as the central intelligence mediator.
+ * This service uses both OpenRouter and Google AI Studio for redundancy and reliability.
  */
 
-import { OPENROUTER_API_KEY } from '../lib/constants';
+import { GoogleGenAI } from '@google/genai';
+import { OPENROUTER_API_KEY, GEMINI_API_KEY } from '../lib/constants';
 
 export interface MediationRequest {
   type: 'meta-prompt' | 'summarize' | 'enhance-prompt' | 'routing-decision';
@@ -254,12 +255,40 @@ Consider the task type, complexity, and required skills.`;
   }
 
   /**
-   * Core method to call the Mediator AI (Gemini Flash)
+   * Core method to call the Mediator AI with fallback between OpenRouter and Google AI Studio
    */
   private async callMediatorAI(systemPrompt: string, userContent: string): Promise<string> {
+    console.log('🧠 MediatorService: Attempting API call with dual fallback support...');
+    
+    // Try OpenRouter first (more reliable for consistent API format)
+    try {
+      const result = await this.callOpenRouterAPI(systemPrompt, userContent);
+      console.log('🧠 MediatorService: OpenRouter API call successful');
+      return result;
+    } catch (openRouterError) {
+      console.warn('🧠 MediatorService: OpenRouter failed, trying Google AI Studio fallback:', openRouterError);
+      
+      // Fallback to Google AI Studio
+      try {
+        const result = await this.callGoogleAIStudio(systemPrompt, userContent);
+        console.log('🧠 MediatorService: Google AI Studio fallback successful');
+        return result;
+      } catch (googleError) {
+        console.error('🧠 MediatorService: Both APIs failed:', { openRouterError, googleError });
+        
+        // Both APIs failed - throw combined error
+        throw new Error(`Both APIs failed - OpenRouter: ${openRouterError instanceof Error ? openRouterError.message : openRouterError}, Google: ${googleError instanceof Error ? googleError.message : googleError}`);
+      }
+    }
+  }
+
+  /**
+   * Call OpenRouter API (primary method)
+   */
+  private async callOpenRouterAPI(systemPrompt: string, userContent: string): Promise<string> {
     const apiKey = OPENROUTER_API_KEY;
     
-    if (!apiKey || typeof apiKey !== 'string') {
+    if (!apiKey || typeof apiKey !== 'string' || apiKey === 'sk-or-v1-missing-key') {
       throw new Error('Invalid or missing OpenRouter API key');
     }
 
@@ -283,24 +312,56 @@ Consider the task type, complexity, and required skills.`;
             content: userContent
           }
         ],
-        temperature: 0.7, // Balanced creativity and consistency
-        max_tokens: 1000 // Reasonable limit for mediation tasks
+        temperature: 0.7,
+        max_tokens: 1000
       }),
     });
 
     if (!response.ok) {
       const errorBody = await response.text();
-      throw new Error(`API request failed: ${response.status} - ${errorBody}`);
+      throw new Error(`OpenRouter API request failed: ${response.status} - ${errorBody}`);
     }
 
     const data = await response.json();
     const result = data.choices[0]?.message?.content;
 
     if (!result) {
-      throw new Error('Invalid response structure from Mediator AI');
+      throw new Error('Invalid response structure from OpenRouter API');
     }
 
     return result.trim();
+  }
+
+  /**
+   * Call Google AI Studio API (fallback method)
+   */
+  private async callGoogleAIStudio(systemPrompt: string, userContent: string): Promise<string> {
+    const apiKey = GEMINI_API_KEY;
+    
+    if (!apiKey || typeof apiKey !== 'string' || apiKey === 'missing-gemini-key') {
+      throw new Error('Invalid or missing Google AI Studio API key');
+    }
+
+    try {
+      const genAI = new GoogleGenAI({ apiKey });
+      const model = genAI.models.generateContent;
+
+      // Combine system prompt and user content for Google AI Studio format
+      const combinedPrompt = `${systemPrompt}\n\nUser Request:\n${userContent}`;
+
+      const response = await model({
+        model: "gemini-2.0-flash-exp",
+        contents: combinedPrompt,
+      });
+
+      if (!response.text) {
+        throw new Error('No response text from Google AI Studio');
+      }
+
+      return response.text.trim();
+    } catch (error) {
+      throw new Error(`Google AI Studio API call failed: ${error instanceof Error ? error.message : error}`);
+    }
   }
 
   /**

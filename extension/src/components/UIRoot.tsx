@@ -487,14 +487,34 @@ const UIRoot: React.FC = () => {
       }));
     };
 
+    // BUG FIX 3: Add refresh event handler to force UI updates
+    const handleForceRefresh = (event: CustomEvent) => {
+      console.log('🔄 UIRoot: Force refresh triggered', event.detail);
+      
+      // Force React to re-render by updating state
+      setSidekickResponses(prev => ({ ...prev })); // Trigger re-render without changing data
+      
+      // Additional refresh for highlights if needed
+      const currentUrl = window.location.href;
+      const pageHighlights = highlights?.filter(h => h.url === currentUrl) || [];
+      if (pageHighlights.length > 0) {
+        // Trigger highlight restoration by setting the same array (forces re-render)
+        setHighlights([...(highlights || [])]);
+      }
+    };
+
     document.addEventListener('nexusmind-sidekick-response', 
       handleSidekickResponse as EventListener);
+    document.addEventListener('nexusmind-force-ui-refresh', 
+      handleForceRefresh as EventListener);
     
     return () => {
       document.removeEventListener('nexusmind-sidekick-response', 
         handleSidekickResponse as EventListener);
+      document.removeEventListener('nexusmind-force-ui-refresh', 
+        handleForceRefresh as EventListener);
     };
-  }, []);
+  }, [highlights]);
 
   useEffect(() => {
     document.addEventListener('mouseup', handleMouseUp);

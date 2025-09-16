@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => {
     ],
     define: {
       __OPENROUTER_API_KEY__: JSON.stringify(env.OPENROUTER_API_KEY || ''),
+      __GEMINI_API_KEY__: JSON.stringify(env.GEMINI_API_KEY || ''),
       __EXTENSION_VERSION__: JSON.stringify(env.EXTENSION_VERSION || '1.0.0'),
       __DEBUG_MODE__: JSON.stringify(env.DEBUG_MODE || 'false')
     },
