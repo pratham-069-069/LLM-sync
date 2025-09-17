@@ -388,7 +388,12 @@ const UIRoot: React.FC = () => {
 
   // Render the SidekickResponse components using portals
   const renderSidekickResponses = () => {
-    return Object.entries(sidekickResponses).map(([targetId, { analysis, role, element }]) => {
+    return Object.entries(sidekickResponses).map(([targetId, responseData]) => {
+      // Skip internal force update entries
+      if (targetId === '__forceUpdate') return null;
+      
+      const { analysis, role, element, error } = responseData as any;
+      
       // Skip if the element is no longer in the DOM
       if (!document.body.contains(element)) {
         return null;
@@ -406,10 +411,34 @@ const UIRoot: React.FC = () => {
         }
       }
       
+      // Retry handler for this specific response
+      const handleRetry = () => {
+        console.log(`🔄 Retrying analysis for target: ${targetId}`);
+        
+        // Clear this specific error
+        setSidekickResponses(prev => {
+          const updated = { ...prev };
+          delete updated[targetId];
+          return updated;
+        });
+        
+        // Dispatch retry event
+        const retryEvent = new CustomEvent('nexusmind-retry-analysis', {
+          detail: { 
+            targetId,
+            element,
+            timestamp: Date.now()
+          }
+        });
+        document.dispatchEvent(retryEvent);
+      };
+      
       return createPortal(
         <SidekickResponse 
-          key={targetId} 
-          analysis={{ role, content: analysis }}
+          key={`${targetId}-${Date.now()}`} // Force re-render with timestamp
+          analysis={{ role: role || 'Unknown', content: analysis || '' }}
+          error={error}
+          onRetry={error ? handleRetry : undefined}
         />,
         container as HTMLElement
       );
@@ -491,16 +520,26 @@ const UIRoot: React.FC = () => {
       console.log('✅ UIRoot: Sidekick response state updated');
     };
 
-    // BUG FIX 3: Add refresh event handler to force UI updates
+    // ENHANCED BUG FIX 3: Add comprehensive refresh event handler to force UI updates
     const handleForceRefresh = (event: CustomEvent) => {
       console.log('🔄 UIRoot: Force refresh triggered', event.detail);
       
-      // Force React to re-render by updating a timestamp
+      // Force React to re-render by updating a timestamp with state manipulation
       const timestamp = Date.now();
       setSidekickResponses(prev => ({ 
         ...prev, 
         __forceUpdate: timestamp 
       } as any)); // Force re-render with timestamp
+      
+      // Additional method: Force component re-mount by changing key
+      const rootElement = document.querySelector('.nexusmind-ui-root');
+      if (rootElement && rootElement.parentElement) {
+        const parent = rootElement.parentElement;
+        const newRoot = rootElement.cloneNode(true);
+        parent.removeChild(rootElement);
+        parent.appendChild(newRoot);
+        console.log('🔄 UIRoot: DOM re-mounted for refresh');
+      }
       
       // Additional refresh for highlights if needed
       const currentUrl = window.location.href;
@@ -511,19 +550,58 @@ const UIRoot: React.FC = () => {
       }
     };
 
-    // Add error event handler
+    // ENHANCED: Add retry event handler for failed sidekick requests
+    const handleRetryAnalysis = (event: CustomEvent) => {
+      console.log('🔄 UIRoot: Retry analysis triggered', event.detail);
+      
+      // Clear any error state and trigger fresh analysis
+      setSidekickResponses(prev => {
+        const filtered = Object.fromEntries(
+          Object.entries(prev).filter(([key]) => key !== '__forceUpdate')
+        );
+        return filtered;
+      });
+      
+      // Dispatch event to SidekickManager to retry latest message
+      const retryEvent = new CustomEvent('nexusmind-retry-latest-message', {
+        detail: { 
+          timestamp: Date.now(),
+          requestId: event.detail?.requestId || 'manual-retry'
+        }
+      });
+      document.dispatchEvent(retryEvent);
+    };
+
+    // Add error event handler with retry capability
     const handleSidekickError = (event: CustomEvent) => {
-      const { error, metadata } = event.detail;
+      const { error, metadata, targetElement } = event.detail;
       console.error('❌ UIRoot: Received sidekick error event', { error, metadata });
       
-      // Could show an error notification here
-      // For now just log it
+      // Display error in UI with retry option
+      if (targetElement) {
+        const targetId = targetElement.dataset.nexusmindId || `nexusmind-error-${Date.now()}`;
+        if (!targetElement.dataset.nexusmindId) {
+          targetElement.dataset.nexusmindId = targetId;
+        }
+        
+        setSidekickResponses(prev => ({
+          ...prev,
+          [targetId]: {
+            analysis: '',
+            role: 'Error',
+            element: targetElement,
+            error: error || 'Unknown error occurred'
+          }
+        }));
+      }
     };
 
     document.addEventListener('nexusmind-sidekick-response', 
       handleSidekickResponse as EventListener);
     document.addEventListener('nexusmind-force-ui-refresh', 
       handleForceRefresh as EventListener);
+    document.addEventListener('nexusmind-retry-analysis',
+      handleRetryAnalysis as EventListener);
     document.addEventListener('nexusmind-sidekick-error', 
       handleSidekickError as EventListener);
     
@@ -532,6 +610,8 @@ const UIRoot: React.FC = () => {
         handleSidekickResponse as EventListener);
       document.removeEventListener('nexusmind-force-ui-refresh', 
         handleForceRefresh as EventListener);
+      document.removeEventListener('nexusmind-retry-analysis',
+        handleRetryAnalysis as EventListener);
       document.removeEventListener('nexusmind-sidekick-error', 
         handleSidekickError as EventListener);
     };
