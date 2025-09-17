@@ -469,7 +469,9 @@ const UIRoot: React.FC = () => {
   // Listen for sidekick response events
   useEffect(() => {
     const handleSidekickResponse = (event: CustomEvent) => {
-      const { targetElement, analysis, config } = event.detail;
+      const { targetElement, analysis, metadata } = event.detail;
+      
+      console.log('🔄 UIRoot: Received sidekick response event', { analysis, metadata });
       
       // Generate a unique ID for this response
       const targetId = targetElement.dataset.nexusmindId || `nexusmind-response-${Date.now()}`;
@@ -481,18 +483,24 @@ const UIRoot: React.FC = () => {
         ...prev,
         [targetId]: {
           analysis,
-          role: config.role,
+          role: metadata?.role || 'Unknown',
           element: targetElement
         }
       }));
+      
+      console.log('✅ UIRoot: Sidekick response state updated');
     };
 
     // BUG FIX 3: Add refresh event handler to force UI updates
     const handleForceRefresh = (event: CustomEvent) => {
       console.log('🔄 UIRoot: Force refresh triggered', event.detail);
       
-      // Force React to re-render by updating state
-      setSidekickResponses(prev => ({ ...prev })); // Trigger re-render without changing data
+      // Force React to re-render by updating a timestamp
+      const timestamp = Date.now();
+      setSidekickResponses(prev => ({ 
+        ...prev, 
+        __forceUpdate: timestamp 
+      } as any)); // Force re-render with timestamp
       
       // Additional refresh for highlights if needed
       const currentUrl = window.location.href;
@@ -503,16 +511,29 @@ const UIRoot: React.FC = () => {
       }
     };
 
+    // Add error event handler
+    const handleSidekickError = (event: CustomEvent) => {
+      const { error, metadata } = event.detail;
+      console.error('❌ UIRoot: Received sidekick error event', { error, metadata });
+      
+      // Could show an error notification here
+      // For now just log it
+    };
+
     document.addEventListener('nexusmind-sidekick-response', 
       handleSidekickResponse as EventListener);
     document.addEventListener('nexusmind-force-ui-refresh', 
       handleForceRefresh as EventListener);
+    document.addEventListener('nexusmind-sidekick-error', 
+      handleSidekickError as EventListener);
     
     return () => {
       document.removeEventListener('nexusmind-sidekick-response', 
         handleSidekickResponse as EventListener);
       document.removeEventListener('nexusmind-force-ui-refresh', 
         handleForceRefresh as EventListener);
+      document.removeEventListener('nexusmind-sidekick-error', 
+        handleSidekickError as EventListener);
     };
   }, [highlights]);
 

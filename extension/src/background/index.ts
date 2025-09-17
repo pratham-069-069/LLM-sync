@@ -72,12 +72,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       });
   }
 
-  // ✨ NEW: Handler for executing Sidekick tasks with Worker AIs
+  // ✨ NEW: Handler for executing Sidekick tasks with Worker AIs (Enhanced with robust response detection)
   if (msg.type === 'EXECUTE_SIDEKICK_TASK') {
     console.log(`🚀 Background: Received EXECUTE_SIDEKICK_TASK for ${msg.platform}`);
     
     const executeSidekickTask = async () => {
       const startTime = Date.now();
+      const taskId = `sidekick_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
       try {
         const available = await getAvailablePlatforms();
@@ -92,50 +93,88 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           return;
         }
 
-        console.log(`🔧 Background: Found ${msg.platform} tab (ID: ${targetPlatform.tabId}), executing task...`);
+        console.log(`🔧 Background: Found ${msg.platform} tab (ID: ${targetPlatform.tabId}), executing task with ID: ${taskId}...`);
 
-        // Step 1: Inject the intelligent meta-prompt into the Worker AI
-        await chrome.tabs.sendMessage(targetPlatform.tabId, {
-          type: 'INJECT_PROMPT',
-          prompt: msg.prompt
-        });
-
-        console.log(`🔧 Background: Prompt injected into ${msg.platform}, waiting for response...`);
-
-        // Step 2: Wait for the Worker AI to generate a response
-        // TODO: Make this more robust with DOM observation instead of fixed delay
-        const waitTime = 15000; // 15 seconds - could be configurable
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-
-        // Step 3: Read the Worker AI's analysis response
-        const response = await chrome.tabs.sendMessage(targetPlatform.tabId, {
-          type: 'READ_LATEST_RESPONSE'
-        });
-
-        const executionTime = Date.now() - startTime;
-
-        if (response && response.success && response.response) {
-          console.log(`✅ Background: Worker AI analysis completed in ${executionTime}ms`);
+        // Set up response listener BEFORE injecting prompt
+        const responseHandler = (responseMsg: any) => {
+          if (responseMsg.type === 'WORKER_RESPONSE_COMPLETE' && responseMsg.taskId === taskId) {
+            console.log(`✅ Background: Received WORKER_RESPONSE_COMPLETE for task ${taskId}`);
+            
+            const executionTime = Date.now() - startTime;
+            
+            // Remove this specific listener
+            chrome.runtime.onMessage.removeListener(responseHandler);
+            
+            sendResponse({
+              success: true,
+              analysis: responseMsg.response,
+              executionTime: executionTime,
+              workerAI: msg.platform,
+              metadata: {
+                ...msg.metadata,
+                ...responseMsg.metadata,
+                executionTime,
+                workerTabId: targetPlatform.tabId,
+                taskId: taskId
+              }
+            });
+            
+            console.log(`🎉 Background: Sidekick task ${taskId} completed successfully in ${executionTime}ms`);
+            return true;
+          }
           
-          sendResponse({
-            success: true,
-            analysis: response.response,
-            executionTime: executionTime,
-            workerAI: msg.platform,
-            metadata: {
-              ...msg.metadata,
-              executionTime,
-              workerTabId: targetPlatform.tabId
-            }
-          });
-        } else {
-          console.error(`❌ Background: Failed to read response from ${msg.platform}:`, response?.error);
+          if (responseMsg.type === 'WORKER_RESPONSE_ERROR' && responseMsg.taskId === taskId) {
+            console.error(`❌ Background: Received WORKER_RESPONSE_ERROR for task ${taskId}:`, responseMsg.error);
+            
+            const executionTime = Date.now() - startTime;
+            
+            // Remove this specific listener
+            chrome.runtime.onMessage.removeListener(responseHandler);
+            
+            sendResponse({
+              success: false,
+              error: `Worker AI response error: ${responseMsg.error}`,
+              executionTime: executionTime,
+              taskId: taskId
+            });
+            return true;
+          }
+        };
+        
+        // Add the response listener
+        chrome.runtime.onMessage.addListener(responseHandler);
+
+        // Set up safety timeout (cleanup in case of no response)
+        const SAFETY_TIMEOUT = 90000; // 90 seconds max
+        const safetyTimeout = setTimeout(() => {
+          console.warn(`⚠️ Background: Safety timeout reached for task ${taskId}, cleaning up...`);
+          
+          chrome.runtime.onMessage.removeListener(responseHandler);
+          
+          const executionTime = Date.now() - startTime;
           sendResponse({
             success: false,
-            error: `Failed to read response from ${msg.platform}: ${response?.error || 'Unknown error'}`,
-            executionTime: executionTime
+            error: `Task timed out after ${SAFETY_TIMEOUT / 1000} seconds. The Worker AI may not have responded.`,
+            executionTime: executionTime,
+            taskId: taskId
           });
-        }
+        }, SAFETY_TIMEOUT);
+
+        // Step 1: Inject the intelligent meta-prompt into the Worker AI with task ID
+        await chrome.tabs.sendMessage(targetPlatform.tabId, {
+          type: 'INJECT_PROMPT',
+          prompt: msg.prompt,
+          taskId: taskId
+        });
+
+        console.log(`🔧 Background: Prompt injected into ${msg.platform}, waiting for event-driven response...`);
+        
+        // Clear safety timeout if we get a response
+        chrome.runtime.onMessage.addListener((clearMsg) => {
+          if ((clearMsg.type === 'WORKER_RESPONSE_COMPLETE' || clearMsg.type === 'WORKER_RESPONSE_ERROR') && clearMsg.taskId === taskId) {
+            clearTimeout(safetyTimeout);
+          }
+        });
 
       } catch (error) {
         const executionTime = Date.now() - startTime;

@@ -16,12 +16,20 @@ const SidekickResponse: React.FC<SidekickResponseProps> = ({ analysis }) => {
         return { borderColor: '#60A5FA', backgroundColor: '#EFF6FF' };
       case 'Alternative View':
         return { borderColor: '#A78BFA', backgroundColor: '#F5F3FF' };
+      case 'Developer':
+        return { borderColor: '#10B981', backgroundColor: '#F0FDF4' };
+      case 'Analyst':
+        return { borderColor: '#F59E0B', backgroundColor: '#FFFBEB' };
       default:
         return { borderColor: '#9CA3AF', backgroundColor: '#F3F4F6' };
     }
   };
 
   const style = getRoleStyle(analysis.role);
+
+  // Handle empty or missing content
+  const content = analysis.content || 'No analysis available';
+  const role = analysis.role || 'Assistant';
 
   return (
     <div
@@ -36,6 +44,7 @@ const SidekickResponse: React.FC<SidekickResponseProps> = ({ analysis }) => {
         fontSize: '14px',
         lineHeight: '1.6',
         color: '#1F2937',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
       }}
     >
       <h4
@@ -47,9 +56,9 @@ const SidekickResponse: React.FC<SidekickResponseProps> = ({ analysis }) => {
           textTransform: 'uppercase',
         }}
       >
-        🤖 {analysis.role} Analysis
+        🤖 {role} Analysis
       </h4>
-      <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{analysis.content}</p>
+      <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{content}</p>
     </div>
   );
 };

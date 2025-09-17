@@ -23,9 +23,10 @@ export class SidekickManager {
   private currentConfig: SidekickConfig | null = null;
   private platformName: string;
   private processingNodes: WeakSet<HTMLElement> = new WeakSet();
-  // BUG FIX 2: Add throttling to prevent infinite loops
+  // BUG FIX 2: Add better throttling to prevent infinite loops
+  private isProcessing: boolean = false; // Track if currently processing
   private lastProcessTime: number = 0;
-  private readonly PROCESS_THROTTLE_MS = 3000; // Minimum 3 seconds between processing same type of message
+  private readonly PROCESS_THROTTLE_MS = 5000; // 5 seconds between processing attempts
   private processedMessageHashes: Set<string> = new Set(); // Track processed messages by content hash
 
   private constructor() {
@@ -76,9 +77,11 @@ export class SidekickManager {
     }
     this.isSidekickActive = false;
     this.currentConfig = null;
-    // BUG FIX 2: Clear processed message hashes to prevent memory leaks
+    // BUG FIX 2: Clear processed message hashes and reset processing state
     this.processedMessageHashes.clear();
-    console.log('🤖 SidekickManager: Stopped.');
+    this.isProcessing = false;
+    this.lastProcessTime = 0;
+    console.log('🤖 SidekickManager: Stopped and reset all processing state.');
   }
 
   /**
@@ -230,21 +233,28 @@ export class SidekickManager {
   private async processLatestMessage(botResponseElement: HTMLElement) {
     if (!this.isSidekickActive || !this.currentConfig) return;
 
-    // BUG FIX 2: Implement throttling to prevent rapid successive processing
+    // BUG FIX 2: Better processing control to prevent infinite loops
+    if (this.isProcessing) {
+      console.log('🤖 SidekickManager: Already processing a message, skipping');
+      return;
+    }
+
     const now = Date.now();
     if (now - this.lastProcessTime < this.PROCESS_THROTTLE_MS) {
-      console.log(`🤖 SidekickManager: Throttled - waiting ${this.PROCESS_THROTTLE_MS - (now - this.lastProcessTime)}ms`);
+      const waitTime = this.PROCESS_THROTTLE_MS - (now - this.lastProcessTime);
+      console.log(`🤖 SidekickManager: Throttled - need to wait ${Math.ceil(waitTime/1000)}s before next processing`);
       return;
     }
 
     console.log('🤖 SidekickManager: Processing latest message with new multi-step flow...');
     
-    // Mark as processing to prevent duplicate processing
+    // Set processing flags to prevent concurrent processing
+    this.isProcessing = true;
     this.processingNodes.add(botResponseElement);
     this.lastProcessTime = now;
 
     try {
-      // STEP 1: Extract conversation context (unchanged)
+      // STEP 1: Extract conversation context
       const botResponse = botResponseElement.innerText?.trim();
       
       if (!botResponse || botResponse.length < 3) {
@@ -271,14 +281,14 @@ export class SidekickManager {
       // Mark this message as processed
       this.processedMessageHashes.add(messageHash);
       
-      // Clean up old hashes to prevent memory leaks (keep only last 50)
-      if (this.processedMessageHashes.size > 50) {
+      // Clean up old hashes to prevent memory leaks (keep only last 25)
+      if (this.processedMessageHashes.size > 25) {
         const hashesArray = Array.from(this.processedMessageHashes);
         this.processedMessageHashes.clear();
-        hashesArray.slice(-25).forEach(hash => this.processedMessageHashes.add(hash));
+        hashesArray.slice(-15).forEach(hash => this.processedMessageHashes.add(hash));
       }
 
-      // STEP 2: Store conversation context (unchanged)
+      // STEP 2: Store conversation context
       ContextManager.addUserMessage(userPrompt);
       ContextManager.addPrimaryResponseMessage(botResponse);
 
@@ -375,7 +385,8 @@ export class SidekickManager {
     } catch (error) {
       console.error('❌ SidekickManager: Critical error during multi-step analysis:', error);
     } finally {
-      // Clean up processing state after a delay
+      // BUG FIX 2: Always clear processing flag and clean up
+      this.isProcessing = false;
       setTimeout(() => this.processingNodes.delete(botResponseElement), 5000);
     }
   }
