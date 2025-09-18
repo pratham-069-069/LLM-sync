@@ -27,6 +27,7 @@ const UIRoot: React.FC = () => {
   const [sidekickResponses, setSidekickResponses] = useState<{
     [targetId: string]: { analysis: string; role: string; element: HTMLElement }
   }>({});
+  const [analyzingElements, setAnalyzingElements] = useState<Set<string>>(new Set());
   
   // Ref to store the active selection for direct keyboard access
   const activeSelectionRef = useRef<Selection | null>(null);
@@ -635,6 +636,213 @@ const UIRoot: React.FC = () => {
     
     return () => clearTimeout(timer);
   }, []);
+
+  // Inject analyze buttons next to AI responses for manual triggering
+  useEffect(() => {
+    if (!sidekickConfig?.enabled) return;
+
+    const injectAnalyzeButtons = () => {
+      const platform = getPlatformName();
+      const responseSelectors = getResponseSelectors(platform);
+      
+      if (!responseSelectors || responseSelectors.length === 0) return;
+
+      const responses = document.querySelectorAll<HTMLElement>(responseSelectors.join(', '));
+      
+      responses.forEach(responseElement => {
+        // Skip if already has a button
+        const existingButton = responseElement.querySelector('.nexusmind-analyze-button');
+        if (existingButton) return;
+
+        // Skip if this is our own UI
+        if (responseElement.classList.contains('nexusmind-') || 
+            responseElement.id?.startsWith('nexusmind-')) return;
+
+        // Create analyze button
+        const analyzeButton = document.createElement('button');
+        analyzeButton.className = 'nexusmind-analyze-button';
+        analyzeButton.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 12l2 2 4-4"/>
+            <circle cx="12" cy="12" r="9"/>
+          </svg>
+          Analyze with ${sidekickConfig.workerAI}
+        `;
+        
+        analyzeButton.style.cssText = `
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 12px;
+          margin: 8px 0;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          border: none;
+          border-radius: 6px;
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          font-family: system-ui, -apple-system, sans-serif;
+          z-index: 1000;
+        `;
+
+        // Add hover effects
+        analyzeButton.onmouseenter = () => {
+          analyzeButton.style.transform = 'translateY(-1px)';
+          analyzeButton.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+        };
+        
+        analyzeButton.onmouseleave = () => {
+          analyzeButton.style.transform = 'translateY(0)';
+          analyzeButton.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+        };
+
+        // Handle click
+        analyzeButton.onclick = async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          const targetId = responseElement.dataset.nexusmindId || 
+            `nexusmind-response-${Date.now()}`;
+          
+          if (!responseElement.dataset.nexusmindId) {
+            responseElement.dataset.nexusmindId = targetId;
+          }
+
+          // Check if already analyzing
+          if (analyzingElements.has(targetId)) return;
+
+          // Show loading state
+          setAnalyzingElements(prev => new Set([...prev, targetId]));
+          analyzeButton.disabled = true;
+          analyzeButton.innerHTML = `
+            <div style="display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.3); border-top: 2px solid white; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+            Analyzing...
+          `;
+          
+          // Add loading animation styles
+          const style = document.createElement('style');
+          style.textContent = `
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `;
+          document.head.appendChild(style);
+
+          try {
+            // Call SidekickManager to analyze this message
+            const result = await SidekickManager.getInstance().analyzeMessage(responseElement);
+            
+            if (!result.success) {
+              // Show error state
+              analyzeButton.innerHTML = `❌ ${result.error}`;
+              analyzeButton.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #ffa500 100%)';
+              
+              // Reset after 3 seconds
+              setTimeout(() => {
+                analyzeButton.disabled = false;
+                analyzeButton.innerHTML = `
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 12l2 2 4-4"/>
+                    <circle cx="12" cy="12" r="9"/>
+                  </svg>
+                  Analyze with ${sidekickConfig.workerAI}
+                `;
+                analyzeButton.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+              }, 3000);
+            } else {
+              // Hide button after successful analysis
+              analyzeButton.style.opacity = '0.5';
+              analyzeButton.innerHTML = '✅ Analyzed';
+              analyzeButton.disabled = true;
+            }
+          } catch (error) {
+            console.error('Analysis failed:', error);
+            analyzeButton.innerHTML = '❌ Error';
+            analyzeButton.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #ffa500 100%)';
+          } finally {
+            setAnalyzingElements(prev => {
+              const next = new Set(prev);
+              next.delete(targetId);
+              return next;
+            });
+          }
+        };
+
+        // Insert button after the response element
+        const wrapper = document.createElement('div');
+        wrapper.className = 'nexusmind-analyze-wrapper';
+        wrapper.style.cssText = `
+          margin: 8px 0;
+          display: flex;
+          justify-content: flex-end;
+          opacity: 0;
+          transition: opacity 0.3s ease;
+        `;
+        wrapper.appendChild(analyzeButton);
+
+        // Insert after the response
+        if (responseElement.nextSibling) {
+          responseElement.parentNode?.insertBefore(wrapper, responseElement.nextSibling);
+        } else {
+          responseElement.parentNode?.appendChild(wrapper);
+        }
+
+        // Show button with animation after insertion
+        setTimeout(() => {
+          wrapper.style.opacity = '1';
+        }, 100);
+      });
+    };
+
+    // Initial injection
+    injectAnalyzeButtons();
+
+    // Watch for new responses
+    const observer = new MutationObserver((mutations) => {
+      let shouldInject = false;
+      
+      mutations.forEach(mutation => {
+        mutation.addedNodes.forEach(node => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const element = node as HTMLElement;
+            // Check if new response was added
+            const responseSelectors = getResponseSelectors(getPlatformName());
+            if (responseSelectors.some(selector => {
+              try {
+                return element.matches?.(selector) || element.querySelector?.(selector);
+              } catch {
+                return false;
+              }
+            })) {
+              shouldInject = true;
+            }
+          }
+        });
+      });
+
+      if (shouldInject) {
+        setTimeout(injectAnalyzeButtons, 500); // Delay to ensure content is stable
+      }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+
+    return () => {
+      observer.disconnect();
+      // Clean up existing buttons
+      document.querySelectorAll('.nexusmind-analyze-wrapper').forEach(wrapper => {
+        wrapper.remove();
+      });
+    };
+  }, [sidekickConfig, analyzingElements]);
 
   const waitForPageContent = useCallback(() => {
     const platform = getPlatformName();

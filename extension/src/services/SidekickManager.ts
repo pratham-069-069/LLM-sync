@@ -12,18 +12,17 @@
  */
 
 import type { SidekickConfig, LegacySidekickConfig } from '../types';
-import { getPlatformName, getResponseSelectors } from '../content-scripts/dom_utils';
+import { getPlatformName } from '../content-scripts/dom_utils';
 import ContextManager from './ContextManager';
 import MediatorService from './MediatorService';
 
 export class SidekickManager {
   private static instance: SidekickManager;
-  private observer: MutationObserver | null = null;
   private isSidekickActive: boolean = false;
   private currentConfig: SidekickConfig | null = null;
   private platformName: string;
   private processingNodes: WeakSet<HTMLElement> = new WeakSet();
-  // BUG FIX 2: Add better throttling to prevent infinite loops
+  // Better throttling to prevent infinite loops
   private isProcessing: boolean = false; // Track if currently processing
   private lastProcessTime: number = 0;
   private readonly PROCESS_THROTTLE_MS = 5000; // 5 seconds between processing attempts
@@ -41,7 +40,7 @@ export class SidekickManager {
   }
 
   /**
-   * Start the Sidekick with the given configuration
+   * Initialize the Sidekick with the given configuration (no auto-observer)
    * Handles both legacy and modern config formats
    */
   public start(config: SidekickConfig | LegacySidekickConfig) {
@@ -56,7 +55,7 @@ export class SidekickManager {
     this.currentConfig = modernConfig;
     ContextManager.initializeContext(modernConfig.workerAI, modernConfig.role);
     
-    console.log('🤖 SidekickManager: Started with config:', {
+    console.log('🤖 SidekickManager: Initialized with config (manual mode):', {
       workerAI: modernConfig.workerAI,
       role: modernConfig.role,
       useMediator: modernConfig.useMediator
@@ -67,17 +66,13 @@ export class SidekickManager {
       return;
     }
 
-    this.startObserver();
+    console.log('🤖 SidekickManager: Ready for manual analysis requests');
   }
 
   public stop() {
-    if (this.observer) {
-      this.observer.disconnect();
-      this.observer = null;
-    }
     this.isSidekickActive = false;
     this.currentConfig = null;
-    // BUG FIX 2: Clear processed message hashes and reset processing state
+    // Clear processed message hashes and reset processing state
     this.processedMessageHashes.clear();
     this.isProcessing = false;
     this.lastProcessTime = 0;
@@ -113,57 +108,47 @@ export class SidekickManager {
   }
 
   /**
-   * Start observing for new AI responses on the current platform
+   * Manually analyze a specific AI response element
+   * This replaces the automatic MutationObserver approach
    */
-  private startObserver() {
-    const responseSelector = getResponseSelectors(this.platformName).join(', ');
-    if (!responseSelector) {
-      console.error(`🤖 SidekickManager: No response selectors found for platform: ${this.platformName}`);
-      return;
+  public async analyzeMessage(botResponseElement: HTMLElement): Promise<{success: boolean; error?: string}> {
+    if (!this.isSidekickActive || !this.currentConfig) {
+      return {
+        success: false,
+        error: 'Sidekick is not active or not configured'
+      };
     }
 
-    console.log(`🤖 SidekickManager: Observing for new responses with selectors: "${responseSelector}"`);
+    console.log('🤖 SidekickManager: Manual analysis requested');
+    
+    // Check if already processing this element
+    if (this.processingNodes.has(botResponseElement)) {
+      return {
+        success: false,
+        error: 'This message is already being analyzed'
+      };
+    }
 
-    this.observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        // BUG FIX 2: Filter out mutations caused by our own UI changes
-        const isFromSidekick = Array.from(mutation.addedNodes).some(node => {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            const element = node as HTMLElement;
-            return element.classList.contains('nexusmind-') || 
-                   element.id?.startsWith('nexusmind-') ||
-                   element.querySelector?.('[class*="nexusmind-"], [id*="nexusmind-"]');
-          }
-          return false;
-        });
-        
-        if (isFromSidekick) {
-          continue; // Skip processing mutations from our own UI
-        }
+    // Apply throttling
+    const now = Date.now();
+    if (now - this.lastProcessTime < this.PROCESS_THROTTLE_MS) {
+      const waitTime = this.PROCESS_THROTTLE_MS - (now - this.lastProcessTime);
+      return {
+        success: false,
+        error: `Please wait ${Math.ceil(waitTime/1000)} seconds before analyzing another message`
+      };
+    }
 
-        mutation.addedNodes.forEach(node => {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            const element = node as HTMLElement;
-            
-            // Check if the added element itself matches, or contains a match
-            const matchingElements = element.matches(responseSelector) 
-              ? [element] 
-              : Array.from(element.querySelectorAll<HTMLElement>(responseSelector));
-
-            matchingElements.forEach(el => {
-              if (!this.processingNodes.has(el)) {
-                this.processLatestMessage(el);
-              }
-            });
-          }
-        });
-      }
-    });
-
-    this.observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
+    try {
+      await this.processLatestMessage(botResponseElement);
+      return { success: true };
+    } catch (error) {
+      console.error('🤖 SidekickManager: Error in manual analysis:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
+    }
   }
 
   /**
@@ -227,8 +212,8 @@ export class SidekickManager {
   }
 
   /**
-   * Process a newly detected AI response
-   * This is the core coordination logic
+   * Process a manually triggered AI response analysis
+   * This is the core coordination logic for manual mode
    */
   private async processLatestMessage(botResponseElement: HTMLElement) {
     if (!this.isSidekickActive || !this.currentConfig) return;
