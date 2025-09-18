@@ -16,6 +16,7 @@
     "https://gemini.google.com/*",
     "https://bard.google.com/*",
     "https://grok.com/*",
+    "https://grok.x.ai/*",
     "https://x.com/*",
     "https://deepseek.com/*",
     "https://chat.deepseek.com/*",
@@ -37,6 +38,7 @@
         "https://gemini.google.com/*",
         "https://bard.google.com/*",
         "https://grok.com/*",
+        "https://grok.x.ai/*",
         "https://x.com/*",
         "https://deepseek.com/*",
         "https://chat.deepseek.com/*"

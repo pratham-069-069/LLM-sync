@@ -95,6 +95,36 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
         console.log(`🔧 Background: Found ${msg.platform} tab (ID: ${targetPlatform.tabId}), executing task with ID: ${taskId}...`);
 
+        // Verify the tab still exists and content script is ready
+        try {
+          await new Promise<void>((resolve, reject) => {
+            chrome.tabs.get(targetPlatform.tabId, () => {
+              if (chrome.runtime.lastError) {
+                return reject(new Error(`Tab ${targetPlatform.tabId} no longer exists: ${chrome.runtime.lastError.message}`));
+              }
+              
+              // Send a ping to verify content script is ready
+              chrome.tabs.sendMessage(targetPlatform.tabId, { type: 'PING' }, (response) => {
+                if (chrome.runtime.lastError) {
+                  return reject(new Error(`Content script not ready in tab ${targetPlatform.tabId}: ${chrome.runtime.lastError.message}`));
+                }
+                if (!response || response.status !== 'ready') {
+                  return reject(new Error(`Content script not responding properly in tab ${targetPlatform.tabId}`));
+                }
+                console.log(`✅ Background: Tab ${targetPlatform.tabId} and content script are ready`);
+                resolve();
+              });
+            });
+          });
+        } catch (error) {
+          console.error(`❌ Background: Tab validation failed:`, error);
+          sendResponse({
+            success: false,
+            error: `Error validating Worker AI tab: ${error instanceof Error ? error.message : 'Unknown error'}`
+          });
+          return;
+        }
+
         // Set up response listener BEFORE injecting prompt
         const responseHandler = (responseMsg: any) => {
           if (responseMsg.type === 'WORKER_RESPONSE_COMPLETE' && responseMsg.taskId === taskId) {

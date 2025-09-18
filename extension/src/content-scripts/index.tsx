@@ -63,6 +63,13 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const platform = getPlatformName();
 
+        // Handle PING to verify content script is ready
+        if (msg.type === 'PING') {
+            console.log('🤖 Content Script: Received ping, responding as ready');
+            sendResponse({ status: 'ready' });
+            return true;
+        }
+
         if (msg.type === 'INJECT_PROMPT') {
             const injectAndSend = async () => {
                 try {
