@@ -18,16 +18,75 @@ console.log('🧩 Multi-platform content script loaded on', location.href);
 // --- UI Injection & Styling ---
 
 /**
- * Injects a style tag into the document head to define highlight colors.
+ * Injects a style tag into the document head to define highlight colors and hover toolbar styles.
  */
 const addHighlightStyles = () => {
   const style = document.createElement('style');
   style.textContent = `
+    /* Highlight colors */
     .nexusmind-highlight-yellow { background-color: rgba(255, 215, 0, 0.4); }
     .nexusmind-highlight-green { background-color: rgba(52, 211, 153, 0.4); }
     .nexusmind-highlight-blue { background-color: rgba(96, 165, 250, 0.4); }
     .nexusmind-highlight-red { background-color: rgba(248, 113, 113, 0.4); }
     .nexusmind-highlight-purple { background-color: rgba(167, 139, 250, 0.4); }
+    
+    /* Hover toolbar enhancements for cross-platform compatibility */
+    .nexusmind-hover-toolbar {
+      /* Ensure toolbar stays above all platform-specific content */
+      z-index: 999999 !important;
+      /* Prevent text selection interference */
+      user-select: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+    }
+    
+    /* Platform-specific toolbar positioning adjustments */
+    /* ChatGPT */
+    [data-testid*="conversation-turn"] .nexusmind-hover-toolbar,
+    [data-message-author-role="assistant"] .nexusmind-hover-toolbar {
+      top: 12px;
+      right: 12px;
+    }
+    
+    /* Claude */
+    .font-claude-message .nexusmind-hover-toolbar,
+    [data-is-streaming="false"] .nexusmind-hover-toolbar {
+      top: 8px;
+      right: 8px;
+    }
+    
+    /* Gemini - specific adjustments for complex layout */
+    [data-test-id*="conversation"] .nexusmind-hover-toolbar,
+    .model-response-text .nexusmind-hover-toolbar {
+      top: 16px;
+      right: 16px;
+      /* Extra backdrop blur for Gemini's busy interface */
+      backdrop-filter: blur(12px) saturate(180%);
+    }
+    
+    /* Grok */
+    .prose .nexusmind-hover-toolbar,
+    [dir="auto"] .nexusmind-hover-toolbar {
+      top: 10px;
+      right: 10px;
+    }
+    
+    /* Ensure smooth animations */
+    @keyframes nexusmind-fade-in {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .nexusmind-hover-toolbar {
+      animation: nexusmind-fade-in 0.2s ease;
+    }
+    
+    /* Loading spinner animation */
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
   `;
   document.head.appendChild(style);
 };

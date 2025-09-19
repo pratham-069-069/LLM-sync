@@ -637,11 +637,11 @@ const UIRoot: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  // Inject analyze buttons next to AI responses for manual triggering
+  // Implement hover-to-reveal toolbar for clean UI
   useEffect(() => {
     if (!sidekickConfig?.enabled) return;
 
-    const injectAnalyzeButtons = () => {
+    const setupHoverToolbars = () => {
       const platform = getPlatformName();
       const responseSelectors = getResponseSelectors(platform);
       
@@ -650,57 +650,74 @@ const UIRoot: React.FC = () => {
       const responses = document.querySelectorAll<HTMLElement>(responseSelectors.join(', '));
       
       responses.forEach(responseElement => {
-        // Skip if already has a button
-        const existingButton = responseElement.querySelector('.nexusmind-analyze-button');
-        if (existingButton) return;
+        // Skip if already has hover toolbar setup
+        if (responseElement.dataset.nexusmindToolbar === 'setup') return;
 
         // Skip if this is our own UI
         if (responseElement.classList.contains('nexusmind-') || 
             responseElement.id?.startsWith('nexusmind-')) return;
 
+        // Mark as setup to prevent duplicates
+        responseElement.dataset.nexusmindToolbar = 'setup';
+
+        // Create the hover toolbar
+        const toolbar = document.createElement('div');
+        toolbar.className = 'nexusmind-hover-toolbar';
+        toolbar.style.cssText = `
+          position: absolute;
+          top: 8px;
+          right: 8px;
+          background: rgba(255, 255, 255, 0.95);
+          backdrop-filter: blur(8px);
+          border: 1px solid rgba(0, 0, 0, 0.1);
+          border-radius: 8px;
+          padding: 4px;
+          display: flex;
+          gap: 4px;
+          opacity: 0;
+          pointer-events: none;
+          transition: all 0.2s ease;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+          z-index: 10000;
+          font-family: system-ui, -apple-system, sans-serif;
+        `;
+
         // Create analyze button
         const analyzeButton = document.createElement('button');
-        analyzeButton.className = 'nexusmind-analyze-button';
+        analyzeButton.className = 'nexusmind-analyze-btn';
         analyzeButton.innerHTML = `
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M9 12l2 2 4-4"/>
             <circle cx="12" cy="12" r="9"/>
           </svg>
-          Analyze with ${sidekickConfig.workerAI}
         `;
-        
+        analyzeButton.title = `Analyze with ${sidekickConfig.workerAI}`;
         analyzeButton.style.cssText = `
-          position: relative;
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 6px 12px;
-          margin: 8px 0;
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
           border: none;
           border-radius: 6px;
-          font-size: 12px;
-          font-weight: 500;
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
           cursor: pointer;
           transition: all 0.2s ease;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-          font-family: system-ui, -apple-system, sans-serif;
-          z-index: 1000;
+          color: white;
         `;
 
-        // Add hover effects
+        // Add hover effects to button
         analyzeButton.onmouseenter = () => {
-          analyzeButton.style.transform = 'translateY(-1px)';
-          analyzeButton.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+          analyzeButton.style.transform = 'scale(1.1)';
+          analyzeButton.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.4)';
         };
         
         analyzeButton.onmouseleave = () => {
-          analyzeButton.style.transform = 'translateY(0)';
-          analyzeButton.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+          analyzeButton.style.transform = 'scale(1)';
+          analyzeButton.style.boxShadow = 'none';
         };
 
-        // Handle click
+        // Handle analyze click
         analyzeButton.onclick = async (e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -719,19 +736,29 @@ const UIRoot: React.FC = () => {
           setAnalyzingElements(prev => new Set([...prev, targetId]));
           analyzeButton.disabled = true;
           analyzeButton.innerHTML = `
-            <div style="display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.3); border-top: 2px solid white; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-            Analyzing...
+            <div style="
+              display: inline-block; 
+              width: 14px; 
+              height: 14px; 
+              border: 2px solid rgba(255,255,255,0.3); 
+              border-top: 2px solid white; 
+              border-radius: 50%; 
+              animation: spin 1s linear infinite;
+            "></div>
           `;
           
-          // Add loading animation styles
-          const style = document.createElement('style');
-          style.textContent = `
-            @keyframes spin {
-              0% { transform: rotate(0deg); }
-              100% { transform: rotate(360deg); }
-            }
-          `;
-          document.head.appendChild(style);
+          // Ensure spin animation is available
+          if (!document.querySelector('#nexusmind-spin-styles')) {
+            const style = document.createElement('style');
+            style.id = 'nexusmind-spin-styles';
+            style.textContent = `
+              @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            `;
+            document.head.appendChild(style);
+          }
 
           try {
             // Call SidekickManager to analyze this message
@@ -739,8 +766,15 @@ const UIRoot: React.FC = () => {
             
             if (!result.success) {
               // Show error state
-              analyzeButton.innerHTML = `❌ ${result.error}`;
+              analyzeButton.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="15" y1="9" x2="9" y2="15"/>
+                  <line x1="9" y1="9" x2="15" y2="15"/>
+                </svg>
+              `;
               analyzeButton.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #ffa500 100%)';
+              analyzeButton.title = `Error: ${result.error}`;
               
               // Reset after 3 seconds
               setTimeout(() => {
@@ -750,20 +784,33 @@ const UIRoot: React.FC = () => {
                     <path d="M9 12l2 2 4-4"/>
                     <circle cx="12" cy="12" r="9"/>
                   </svg>
-                  Analyze with ${sidekickConfig.workerAI}
                 `;
                 analyzeButton.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                analyzeButton.title = `Analyze with ${sidekickConfig.workerAI}`;
               }, 3000);
             } else {
-              // Hide button after successful analysis
-              analyzeButton.style.opacity = '0.5';
-              analyzeButton.innerHTML = '✅ Analyzed';
+              // Show success state
+              analyzeButton.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 12l2 2 4-4"/>
+                  <circle cx="12" cy="12" r="9"/>
+                </svg>
+              `;
+              analyzeButton.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+              analyzeButton.title = 'Analysis complete!';
               analyzeButton.disabled = true;
             }
           } catch (error) {
             console.error('Analysis failed:', error);
-            analyzeButton.innerHTML = '❌ Error';
+            analyzeButton.innerHTML = `
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="15" y1="9" x2="9" y2="15"/>
+                <line x1="9" y1="9" x2="15" y2="15"/>
+              </svg>
+            `;
             analyzeButton.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #ffa500 100%)';
+            analyzeButton.title = 'Analysis failed';
           } finally {
             setAnalyzingElements(prev => {
               const next = new Set(prev);
@@ -773,38 +820,44 @@ const UIRoot: React.FC = () => {
           }
         };
 
-        // Insert button after the response element
-        const wrapper = document.createElement('div');
-        wrapper.className = 'nexusmind-analyze-wrapper';
-        wrapper.style.cssText = `
-          margin: 8px 0;
-          display: flex;
-          justify-content: flex-end;
-          opacity: 0;
-          transition: opacity 0.3s ease;
-        `;
-        wrapper.appendChild(analyzeButton);
+        toolbar.appendChild(analyzeButton);
 
-        // Insert after the response
-        if (responseElement.nextSibling) {
-          responseElement.parentNode?.insertBefore(wrapper, responseElement.nextSibling);
-        } else {
-          responseElement.parentNode?.appendChild(wrapper);
+        // Make the response element relative positioned for proper toolbar placement
+        const computedStyle = window.getComputedStyle(responseElement);
+        if (computedStyle.position === 'static') {
+          responseElement.style.position = 'relative';
         }
 
-        // Show button with animation after insertion
-        setTimeout(() => {
-          wrapper.style.opacity = '1';
-        }, 100);
+        // Add toolbar to response element
+        responseElement.appendChild(toolbar);
+
+        // Add hover event listeners to show/hide toolbar
+        const showToolbar = () => {
+          toolbar.style.opacity = '1';
+          toolbar.style.pointerEvents = 'auto';
+        };
+
+        const hideToolbar = () => {
+          toolbar.style.opacity = '0';
+          toolbar.style.pointerEvents = 'none';
+        };
+
+        // Add hover listeners to both the response and toolbar
+        responseElement.addEventListener('mouseenter', showToolbar);
+        responseElement.addEventListener('mouseleave', hideToolbar);
+        
+        // Keep toolbar visible when hovering over it
+        toolbar.addEventListener('mouseenter', showToolbar);
+        toolbar.addEventListener('mouseleave', hideToolbar);
       });
     };
 
-    // Initial injection
-    injectAnalyzeButtons();
+    // Initial setup
+    setupHoverToolbars();
 
     // Watch for new responses
     const observer = new MutationObserver((mutations) => {
-      let shouldInject = false;
+      let shouldSetup = false;
       
       mutations.forEach(mutation => {
         mutation.addedNodes.forEach(node => {
@@ -819,14 +872,14 @@ const UIRoot: React.FC = () => {
                 return false;
               }
             })) {
-              shouldInject = true;
+              shouldSetup = true;
             }
           }
         });
       });
 
-      if (shouldInject) {
-        setTimeout(injectAnalyzeButtons, 500); // Delay to ensure content is stable
+      if (shouldSetup) {
+        setTimeout(setupHoverToolbars, 500); // Delay to ensure content is stable
       }
     });
 
@@ -837,12 +890,22 @@ const UIRoot: React.FC = () => {
 
     return () => {
       observer.disconnect();
-      // Clean up existing buttons
-      document.querySelectorAll('.nexusmind-analyze-wrapper').forEach(wrapper => {
-        wrapper.remove();
+      // Clean up existing toolbars
+      document.querySelectorAll('.nexusmind-hover-toolbar').forEach(toolbar => {
+        toolbar.remove();
+      });
+      // Reset position styles
+      document.querySelectorAll('[data-nexusmind-toolbar="setup"]').forEach(element => {
+        const htmlElement = element as HTMLElement;
+        delete htmlElement.dataset.nexusmindToolbar;
+        if (htmlElement.style.position === 'relative') {
+          htmlElement.style.position = '';
+        }
       });
     };
   }, [sidekickConfig, analyzingElements]);
+
+
 
   const waitForPageContent = useCallback(() => {
     const platform = getPlatformName();
