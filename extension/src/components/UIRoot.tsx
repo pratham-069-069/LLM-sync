@@ -400,16 +400,19 @@ const UIRoot: React.FC = () => {
         return null;
       }
       
-      // Create a container for the sidekick response if it doesn't exist
-      let container = element.nextElementSibling;
-      if (!container || !container.classList.contains('nexusmind-sidekick-container')) {
+      // A more robust way to create and find the container
+      const containerId = `sidekick-container-for-${targetId}`;
+      let container = element.querySelector(`#${containerId}`);
+
+      if (!container) {
         container = document.createElement('div');
+        container.id = containerId;
+        // The class is still useful for styling and selection
         container.classList.add('nexusmind-sidekick-container');
-        if (element.nextSibling) {
-          element.parentNode?.insertBefore(container, element.nextSibling);
-        } else {
-          element.parentNode?.appendChild(container);
-        }
+        
+        // Append as the LAST CHILD of the element. This is much more stable
+        // than trying to guess where the "next" element is.
+        element.appendChild(container);
       }
       
       // Retry handler for this specific response
@@ -436,7 +439,7 @@ const UIRoot: React.FC = () => {
       
       return createPortal(
         <SidekickResponse 
-          key={`${targetId}-${Date.now()}`} // Force re-render with timestamp
+          key={targetId}
           analysis={{ role: role || 'Unknown', content: analysis || '' }}
           error={error}
           onRetry={error ? handleRetry : undefined}
