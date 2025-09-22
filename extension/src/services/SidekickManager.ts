@@ -12,7 +12,7 @@
  */
 
 import type { SidekickConfig, LegacySidekickConfig } from '../types';
-import { getPlatformName } from '../content-scripts/dom_utils';
+import { getPlatformName, getResponseSelectors } from '../content-scripts/dom_utils';
 import ContextManager from './ContextManager';
 import MediatorService from './MediatorService';
 
@@ -22,6 +22,8 @@ export class SidekickManager {
   private currentConfig: SidekickConfig | null = null;
   private platformName: string;
   private processingNodes: WeakSet<HTMLElement> = new WeakSet();
+  private processedElements: WeakSet<HTMLElement> = new WeakSet(); // Track processed response elements
+  private observer: MutationObserver | null = null; // For automatic response detection
   // Better throttling to prevent infinite loops
   private isProcessing: boolean = false; // Track if currently processing
   private lastProcessTime: number = 0;
@@ -67,6 +69,166 @@ export class SidekickManager {
     }
 
     console.log('🤖 SidekickManager: Ready for manual analysis requests');
+    
+    // Set up MutationObserver for automatic detection of new responses
+    this.setupMutationObserver();
+  }
+
+  /**
+   * Set up MutationObserver to automatically detect new AI responses
+   */
+  private setupMutationObserver() {
+    // Stop any existing observer
+    if (this.observer) {
+      this.observer.disconnect();
+    }
+
+    this.observer = new MutationObserver(this.checkForNewResponse);
+    
+    // Observe the document body for any changes
+    const targetNode = document.body;
+    const config = { 
+      childList: true, 
+      subtree: true,
+      attributes: false,
+      characterData: false
+    };
+
+    this.observer.observe(targetNode, config);
+    console.log('🤖 SidekickManager: MutationObserver started for automatic response detection');
+  }
+
+  /**
+   * Check for new AI responses on the page and process the latest one
+   * This function is called by MutationObserver on DOM changes
+   */
+  private checkForNewResponse = () => {
+    if (!this.isSidekickActive || !this.currentConfig || !this.currentConfig.enabled) {
+      return;
+    }
+
+    const platform = getPlatformName();
+    const selectors = getResponseSelectors(platform);
+    
+    if (!selectors || selectors.length === 0) {
+      console.warn(`🤖 SidekickManager: No response selectors found for platform: ${platform}`);
+      return;
+    }
+
+    try {
+      // CORE FIX: Use querySelectorAll to get ALL response elements, then select the last one
+      const allResponseElements = document.querySelectorAll<HTMLElement>(selectors.join(', '));
+      
+      if (allResponseElements.length === 0) {
+        return; // No responses found
+      }
+
+      // Select the VERY LAST element from the list (most recent response)
+      const latestResponseElement = allResponseElements[allResponseElements.length - 1];
+      
+      if (!latestResponseElement) {
+        return;
+      }
+
+      // Check if we've already processed this specific element
+      if (this.processedElements.has(latestResponseElement)) {
+        return; // Already processed this element
+      }
+
+      // Verify the element has actual content
+      const responseText = latestResponseElement.textContent?.trim();
+      if (!responseText || responseText.length < 10) {
+        return; // Skip empty or very short responses
+      }
+
+      console.log('🤖 SidekickManager: New latest response detected, processing...', {
+        platform,
+        elementTag: latestResponseElement.tagName,
+        contentLength: responseText.length,
+        contentPreview: responseText.substring(0, 50) + '...'
+      });
+
+      // Mark this element as processed
+      this.processedElements.add(latestResponseElement);
+      
+      // Process the latest response
+      this.handleNewResponse(latestResponseElement);
+
+    } catch (error) {
+      console.error('🤖 SidekickManager: Error in checkForNewResponse:', error);
+    }
+  };
+
+  /**
+   * Extract the complete AI response text from an element
+   * Special handling for different platforms to ensure we get the full text
+   */
+  private extractAIResponseText(element: HTMLElement): string | null {
+    if (!element || !element.textContent) {
+      return null;
+    }
+    
+    // Get the platform and try to extract the full text content
+    const platform = getPlatformName();
+    
+    // Try to get all text from this element and its children
+    let responseText = element.textContent.trim();
+    
+    // For Grok, we need special handling to get all content
+    if (platform === 'Grok') {
+      // Try to find the parent message container for more complete text
+      const messageContainer = element.closest('div[class*="message-bubble"]') || 
+                             element.closest('div[data-testid*="grok"]') ||
+                             element.closest('div[dir="auto"]');
+      
+      if (messageContainer) {
+        // Get all text content from the message container
+        const textElements = messageContainer.querySelectorAll('p, div[class*="break-words"]');
+        const fullText = Array.from(textElements)
+          .map(el => el.textContent?.trim())
+          .filter(text => text && text.length > 0)
+          .join('\n\n');
+          
+        if (fullText) {
+          responseText = fullText;
+        }
+      }
+    }
+    
+    // For Gemini, also need some special handling
+    if (platform === 'Gemini') {
+      // Try to find the full response container
+      const responseContainer = element.closest('.model-response-text') || 
+                              element.closest('.response-container');
+      
+      if (responseContainer) {
+        // Get all markdown blocks
+        const markdownElements = responseContainer.querySelectorAll('.markdown');
+        const fullText = Array.from(markdownElements)
+          .map(el => el.textContent?.trim())
+          .filter(text => text && text.length > 0)
+          .join('\n\n');
+          
+        if (fullText) {
+          responseText = fullText;
+        }
+      }
+    }
+    
+    console.log(`🤖 SidekickManager: Extracted ${responseText.length} chars of AI response from ${platform}`);
+    return responseText;
+  }
+
+  /**
+   * Handle processing of a newly detected response
+   */
+  private async handleNewResponse(responseElement: HTMLElement) {
+    try {
+      console.log('🤖 SidekickManager: Handling new response element');
+      await this.processLatestMessage(responseElement);
+    } catch (error) {
+      console.error('🤖 SidekickManager: Error handling new response:', error);
+    }
   }
 
   public stop() {
@@ -76,6 +238,14 @@ export class SidekickManager {
     this.processedMessageHashes.clear();
     this.isProcessing = false;
     this.lastProcessTime = 0;
+    
+    // Stop MutationObserver
+    if (this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+      console.log('🤖 SidekickManager: MutationObserver stopped');
+    }
+    
     console.log('🤖 SidekickManager: Stopped and reset all processing state.');
   }
 
@@ -239,8 +409,8 @@ export class SidekickManager {
     this.lastProcessTime = now;
 
     try {
-      // STEP 1: Extract conversation context
-      const botResponse = botResponseElement.innerText?.trim();
+      // STEP 1: Extract conversation context - IMPROVED to use the specific target element
+      const botResponse = this.extractAIResponseText(botResponseElement);
       
       if (!botResponse || botResponse.length < 3) {
         console.warn('🤖 SidekickManager: Empty or too short response text, skipping analysis');
