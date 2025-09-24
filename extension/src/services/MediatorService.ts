@@ -389,7 +389,9 @@ Guidelines:
 - Preserve the user's original intent and requirements
 - Make the prompt self-contained and complete
 - Optimize for ${targetWorkerAI}'s capabilities
-- Return ONLY the final prompt, nothing else`;
+- Return ONLY the final prompt, nothing else
+
+**IMPORTANT**: Format your entire response using GitHub Flavored Markdown for readability. Use headings, lists, code blocks, and bold text where appropriate.`;
   }
 
   /**

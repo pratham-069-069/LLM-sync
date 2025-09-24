@@ -1,4 +1,6 @@
 import React from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { getPlatformName } from '../content-scripts/dom_utils';
 
 interface SidekickResponseProps {
@@ -140,7 +142,11 @@ const SidekickResponse: React.FC<SidekickResponseProps> = ({ analysis, error, on
       >
         🤖 {role} Analysis
       </h4>
-      <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{content}</p>
+      <div className="prose prose-sm dark:prose-invert max-w-none" style={{ margin: 0 }}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {content}
+        </ReactMarkdown>
+      </div>
     </div>
   );
 };
