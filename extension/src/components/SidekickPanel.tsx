@@ -5,7 +5,7 @@ import type { SidekickConfig } from '../types';
 const defaultConfig: SidekickConfig = {
   enabled: false,
   workerAI: 'Claude',
-  role: 'Critic',
+  customPrompt: 'Analyze this response and provide critical feedback on accuracy, completeness, and potential improvements.',
   useMediator: true,
 };
 
@@ -40,8 +40,8 @@ const SidekickPanel: React.FC = () => {
     setConfig({ ...currentConfig, workerAI: e.target.value as SidekickConfig['workerAI'] });
   };
 
-  const handleRoleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setConfig({ ...currentConfig, role: e.target.value as SidekickConfig['role'] });
+  const handleCustomPromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setConfig({ ...currentConfig, customPrompt: e.target.value });
   };
 
   const handleMediatorToggle = () => {
@@ -162,33 +162,34 @@ const SidekickPanel: React.FC = () => {
         </p>
       </div>
 
-      {/* Role Configuration */}
+      {/* Custom Prompt Configuration */}
       <div>
-        <label htmlFor="sidekick-role" style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px' }}>
-          🎭 Analysis Role
+        <label htmlFor="sidekick-prompt" style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px' }}>
+          📝 Custom Analysis Prompt
         </label>
-        <select
-          id="sidekick-role"
-          value={currentConfig.role}
-          onChange={handleRoleChange}
+        <textarea
+          id="sidekick-prompt"
+          value={currentConfig.customPrompt}
+          onChange={handleCustomPromptChange}
           disabled={!currentConfig.enabled}
+          placeholder="Describe what kind of analysis you want the AI to perform..."
+          rows={4}
           style={{ 
             width: '100%', 
             padding: '8px', 
             borderRadius: '6px', 
-            border: '1px solid #d1d5db', 
+            border: '1px solid #d1d5db',
+            fontSize: '13px',
+            fontFamily: 'system-ui, sans-serif',
+            resize: 'vertical',
+            minHeight: '80px',
             opacity: !currentConfig.enabled ? 0.6 : 1, 
-            cursor: !currentConfig.enabled ? 'not-allowed' : 'pointer' 
+            cursor: !currentConfig.enabled ? 'not-allowed' : 'text',
+            backgroundColor: !currentConfig.enabled ? '#f9fafb' : 'white'
           }}
-        >
-          <option value="Critic">🔍 Critic - Find issues & improvements</option>
-          <option value="Fact-Checker">✅ Fact-Checker - Verify accuracy</option>
-          <option value="Alternative View">🔄 Alternative View - Different perspectives</option>
-          <option value="Developer">💻 Developer - Technical analysis</option>
-          <option value="Analyst">📊 Analyst - Deep insights</option>
-        </select>
+        />
         <p style={{ fontSize: '12px', color: '#6b7280', margin: '4px 0 0' }}>
-          The perspective the Worker AI will adopt during analysis.
+          Describe the analysis you want the Worker AI to perform on each response.
         </p>
       </div>
 
@@ -200,14 +201,14 @@ const SidekickPanel: React.FC = () => {
             <div style={{ marginTop: '4px' }}>
               {currentConfig.useMediator ? (
                 <>
-                  1. <strong>Mediator</strong> (Gemini) creates intelligent meta-prompt<br/>
-                  2. <strong>Worker AI</strong> ({currentConfig.workerAI}) performs {currentConfig.role.toLowerCase()} analysis<br/>
+                  1. <strong>Mediator</strong> (Gemini) optimizes your custom prompt with conversation context<br/>
+                  2. <strong>Worker AI</strong> ({currentConfig.workerAI}) executes the mediated analysis<br/>
                   3. Results displayed alongside original response
                 </>
               ) : (
                 <>
-                  1. <strong>Template</strong> generates basic prompt<br/>
-                  2. <strong>Worker AI</strong> ({currentConfig.workerAI}) performs {currentConfig.role.toLowerCase()} analysis<br/>
+                  1. Your <strong>custom prompt</strong> is sent directly to the Worker AI<br/>
+                  2. <strong>Worker AI</strong> ({currentConfig.workerAI}) performs the requested analysis<br/>
                   3. Results displayed alongside original response
                 </>
               )}

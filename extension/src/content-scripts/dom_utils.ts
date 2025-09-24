@@ -1032,6 +1032,56 @@ export const debugResponseContainers = () => {
 };
 
 /**
+ * Provides specific selectors for both user prompts and assistant responses
+ * based on the provided DOM screenshots.
+ * @param {string} platform The current AI platform.
+ * @returns {object} Object containing userPromptSelectors, assistantResponseSelectors arrays, and optional turnContainer.
+ */
+export const getConversationSelectors = (platform: string): {
+  userPromptSelectors: string[];
+  assistantResponseSelectors: string[];
+  turnContainer?: string;
+} => {
+  switch (platform) {
+    case 'ChatGPT':
+      return {
+        userPromptSelectors: ['div[data-message-author-role="user"]'],
+        assistantResponseSelectors: ['div[data-message-author-role="assistant"] .prose'],
+      };
+    case 'Claude':
+      return {
+        userPromptSelectors: ['div[data-message-author-role="user"]'],
+        assistantResponseSelectors: ['div[contenteditable="true"].ProseMirror'],
+      };
+    case 'DeepSeek':
+      return {
+        userPromptSelectors: ['.chat-message-item[data-role="user"]'],
+        assistantResponseSelectors: ['div.ds-markdown.ds-markdown-block'],
+        turnContainer: 'div.message-container',
+      };
+    case 'Grok':
+      return {
+        userPromptSelectors: ['div[data-testid*="user-message"]'],
+        assistantResponseSelectors: ['div[class*="break-words"] p[dir="auto"]'],
+      };
+    case 'Gemini':
+      return {
+        userPromptSelectors: [
+          'div.query-text', // Primary selector for the text itself
+          'div.user-query-container.user-query-bubble-container' // Secondary container as a fallback
+        ],
+        assistantResponseSelectors: ['.model-response-text'],
+        turnContainer: 'div.conversation-turn',
+      };
+    default:
+      return {
+        userPromptSelectors: ['[data-role="user"]', '.user-message'],
+        assistantResponseSelectors: ['[data-role="assistant"]', '.assistant-message'],
+      };
+  }
+};
+
+/**
  * Gets the supported features for the current platform
  * @param platform The current AI platform
  * @returns Object containing which features are supported

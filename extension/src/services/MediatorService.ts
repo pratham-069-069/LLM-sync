@@ -38,43 +38,42 @@ class MediatorService {
   private readonly mediatorModel = 'google/gemini-2.0-flash-exp:free';
 
   /**
-   * Generate an intelligent meta-prompt for a Worker AI to analyze a conversation
-   * This is the core mediation task - turning raw conversation into targeted analysis requests
+   * Generate an optimized prompt for a Worker AI using the user's custom instruction and conversation context
+   * This is the core mediation task - turning custom instructions and conversation history into targeted prompts
    */
-  public async generateMetaPrompt(
-    role: string,
-    userPrompt: string,
-    primaryResponse: string,
+  public async generateMediatedPrompt(
+    userInstruction: string,
+    conversationHistory: string,
     targetWorkerAI: string
   ): Promise<MediationResult> {
-    console.log('🧠 MediatorService: Generating meta-prompt for role:', role, 'Target AI:', targetWorkerAI);
+    console.log('🧠 MediatorService: Generating mediated prompt for target AI:', targetWorkerAI);
     
     const startTime = Date.now();
     
     try {
-      const systemPrompt = this.getMetaPromptSystemPrompt(role, targetWorkerAI);
-      const userContent = this.formatConversationForMetaPrompt(userPrompt, primaryResponse, role);
+      const systemPrompt = this.getMediatedPromptSystemPrompt(targetWorkerAI);
+      const userContent = this.formatContextForMediation(userInstruction, conversationHistory);
 
-      const analysis = await this.callMediatorAI(systemPrompt, userContent);
+      const mediatedPrompt = await this.callMediatorAI(systemPrompt, userContent);
       
       const processingTime = Date.now() - startTime;
       
-      console.log(`🧠 MediatorService: Meta-prompt generated successfully in ${processingTime}ms`);
-      console.log(`🧠 MediatorService: Preview: "${analysis.substring(0, 100)}..."`);
+      console.log(`🧠 MediatorService: Mediated prompt generated successfully in ${processingTime}ms`);
+      console.log(`🧠 MediatorService: Preview: "${mediatedPrompt.substring(0, 100)}..."`);
       
       return {
         success: true,
-        result: analysis,
+        result: mediatedPrompt,
         metadata: {
           processingTime,
-          confidence: 0.95 // High confidence for meta-prompt generation
+          confidence: 0.95 // High confidence for mediated prompt generation
         }
       };
     } catch (error) {
-      console.error('🧠 MediatorService: Error generating meta-prompt:', error);
+      console.error('🧠 MediatorService: Error generating mediated prompt:', error);
       
-      // Provide an intelligent fallback meta-prompt
-      const fallbackPrompt = this.generateFallbackMetaPrompt(role, userPrompt, primaryResponse);
+      // Provide an intelligent fallback prompt
+      const fallbackPrompt = this.generateFallbackMediatedPrompt(userInstruction, conversationHistory);
       
       return {
         success: true, // Still successful, just using fallback
@@ -365,88 +364,67 @@ Consider the task type, complexity, and required skills.`;
   }
 
   /**
-   * Generate system prompt for meta-prompt creation
+   * Generate system prompt for mediated prompt creation
    */
-  private getMetaPromptSystemPrompt(role: string, targetWorkerAI: string): string {
-    const roleInstructions = {
-      'Critic': 'critically analyze and identify potential issues, biases, or improvements',
-      'Fact-Checker': 'verify accuracy, check claims, and identify potential misinformation',
-      'Alternative View': 'provide different perspectives, contrarian views, or alternative approaches',
-      'Developer': 'analyze from a technical/coding perspective, suggest improvements',
-      'Analyst': 'provide detailed analysis, break down complex topics, identify patterns'
-    };
-
+  private getMediatedPromptSystemPrompt(targetWorkerAI: string): string {
     const workerStrengths = {
-      'Claude': 'excellent analytical thinking and nuanced understanding',
-      'ChatGPT': 'strong problem-solving and general knowledge',
-      'Gemini': 'powerful research capabilities and factual accuracy'
+      'Claude': 'excellent analytical thinking, nuanced understanding, and ethical reasoning',
+      'ChatGPT': 'strong problem-solving, coding abilities, and creative thinking',
+      'Gemini': 'powerful research capabilities, factual accuracy, and web-connected knowledge'
     };
 
-    return `You are a meta-prompt generator for AI coordination. Create intelligent prompts that leverage ${targetWorkerAI}'s strengths (${workerStrengths[targetWorkerAI as keyof typeof workerStrengths] || 'general capabilities'}).
+    return `You are an AI prompt engineer. Your job is to take a user's custom instruction and conversation history to create a single, clear, context-aware prompt for ${targetWorkerAI}.
 
-Role: The target AI should ${roleInstructions[role as keyof typeof roleInstructions] || 'analyze'}.
+Target AI Strengths: ${workerStrengths[targetWorkerAI as keyof typeof workerStrengths] || 'general AI capabilities'}
 
-Create a clear, specific prompt that:
-1. Explains the role and perspective to adopt
-2. Provides the conversation context  
-3. Asks for specific analysis based on the role
-4. Leverages the target AI's strengths
-5. Requests actionable insights
+Your task:
+1. Analyze the user's custom instruction to understand what they want
+2. Review the conversation history to provide relevant context
+3. Create one optimized prompt that combines both elements
+4. Leverage ${targetWorkerAI}'s specific strengths
+5. Make the prompt clear, specific, and actionable
 
-Keep the meta-prompt focused and effective.`;
+Guidelines:
+- Include relevant conversation context to inform the analysis
+- Preserve the user's original intent and requirements
+- Make the prompt self-contained and complete
+- Optimize for ${targetWorkerAI}'s capabilities
+- Return ONLY the final prompt, nothing else`;
   }
 
   /**
-   * Format conversation data for meta-prompt generation
+   * Format context for mediation
    */
-  private formatConversationForMetaPrompt(
-    userPrompt: string,
-    primaryResponse: string,
-    role: string
+  private formatContextForMediation(
+    userInstruction: string,
+    conversationHistory: string
   ): string {
-    return `Create a meta-prompt for this conversation analysis:
+    return `Create an optimized prompt using this information:
 
-USER'S QUESTION:
-${userPrompt}
+USER'S CUSTOM INSTRUCTION:
+${userInstruction}
 
-PRIMARY AI'S RESPONSE:
-${primaryResponse}
+CONVERSATION HISTORY:
+${conversationHistory}
 
-TARGET ROLE: ${role}
-
-Generate a single, well-crafted prompt that will guide another AI to provide valuable ${role.toLowerCase()} analysis of this conversation.`;
+Generate a single, context-aware prompt that combines the user's instruction with the relevant conversation context. The prompt should be ready to send directly to the target AI.`;
   }
 
   /**
-   * Generate fallback meta-prompt when Mediator AI is unavailable
+   * Generate fallback mediated prompt when Mediator AI is unavailable
    */
-  private generateFallbackMetaPrompt(
-    role: string,
-    userPrompt: string,
-    primaryResponse: string
+  private generateFallbackMediatedPrompt(
+    userInstruction: string,
+    conversationHistory: string
   ): string {
-    console.log('🧠 MediatorService: Using fallback meta-prompt for role:', role);
+    console.log('🧠 MediatorService: Using fallback mediated prompt');
     
-    const roleTemplates = {
-      'Critic': 'As a critical analyst, examine the following AI response for potential issues, biases, missing information, or areas that could be improved. Be constructive and specific in your critique.',
-      'Fact-Checker': 'As a fact-checker, analyze the following AI response for accuracy. Identify any claims that should be verified, potential misinformation, or statements that need additional sources.',
-      'Alternative View': 'As a perspective analyst, provide alternative viewpoints or different approaches to the topic discussed in the following AI response. Consider contrarian views and unexplored angles.',
-      'Developer': 'As a technical reviewer, analyze the following response from a developer\'s perspective. Focus on code quality, best practices, potential bugs, and technical accuracy.',
-      'Analyst': 'As a detailed analyst, provide deeper analysis of the following response. Break down complex topics, identify patterns, and offer additional insights.'
-    };
+    return `${userInstruction}
 
-    const template = roleTemplates[role as keyof typeof roleTemplates] || 
-                    'As an AI assistant, provide thoughtful analysis of the following response.';
+Context from conversation:
+${conversationHistory}
 
-    return `${template}
-
-Original User Question:
-${userPrompt}
-
-AI Response to Analyze:
-${primaryResponse}
-
-Your Analysis:`;
+Please provide your analysis based on the above instruction and context.`;
   }
 }
 

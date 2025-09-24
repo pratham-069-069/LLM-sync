@@ -22,15 +22,15 @@ export interface Highlight {
 
 /**
  * Configuration for the AI Sidekick feature.
- * Separates the Mediator (intelligence/brain) from the Worker (analysis executor).
+ * Uses Gemini as the Mediator (intelligence/brain) and the Worker AI as the executor.
  */
 export interface SidekickConfig {
   /** Whether the sidekick is enabled. */
   enabled: boolean;
   /** The Worker AI platform to perform the analysis (the "doer"). */
   workerAI: 'Claude' | 'ChatGPT' | 'Gemini';
-  /** The role for the Worker AI to adopt during analysis. */
-  role: 'Critic' | 'Fact-Checker' | 'Alternative View' | 'Developer' | 'Analyst';
+  /** Custom prompt instruction for the analysis. */
+  customPrompt: string;
   /** Whether to use the Mediator (Gemini) for intelligent meta-prompt generation. */
   useMediator: boolean;
 }
@@ -71,6 +71,18 @@ export interface Snippet {
   url: string;
   /** The AI platform where the snippet originated. */
   platform: string;
+}
+
+/**
+ * Represents a single message in a conversation.
+ */
+export interface Message {
+  /** The role of the message sender. */
+  role: 'user' | 'assistant';
+  /** The content of the message. */
+  content: string;
+  /** The position in the document for ordering. */
+  position: number;
 }
 
 /**

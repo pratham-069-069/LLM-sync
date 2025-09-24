@@ -22,7 +22,7 @@ const UIRoot: React.FC = () => {
   const [sidePanelVisible, setSidePanelVisible] = useState(false);
   const [sidekickConfig] = useStorage<'nexusmind-sidekick-config'>(
     'nexusmind-sidekick-config',
-    { enabled: false, workerAI: 'Claude', role: 'Critic', useMediator: true }
+    { enabled: false, workerAI: 'Claude', customPrompt: 'Analyze this response and provide critical feedback on accuracy, completeness, and potential improvements.', useMediator: true }
   );
   const [sidekickResponses, setSidekickResponses] = useState<{
     [targetId: string]: { analysis: string; role: string; element: HTMLElement }

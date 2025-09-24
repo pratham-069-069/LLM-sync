@@ -45,7 +45,7 @@ export class SidekickManager {
    * Initialize the Sidekick with the given configuration (no auto-observer)
    * Handles both legacy and modern config formats
    */
-  public start(config: SidekickConfig | LegacySidekickConfig) {
+  public async start(config: SidekickConfig | LegacySidekickConfig) {
     if (this.isSidekickActive) {
       this.stop();
     }
@@ -55,11 +55,11 @@ export class SidekickManager {
 
     this.isSidekickActive = true;
     this.currentConfig = modernConfig;
-    ContextManager.initializeContext(modernConfig.workerAI, modernConfig.role);
+    await ContextManager.initializeContext(modernConfig.workerAI, 'Sidekick');
     
     console.log('🤖 SidekickManager: Initialized with config (manual mode):', {
       workerAI: modernConfig.workerAI,
-      role: modernConfig.role,
+      customPrompt: modernConfig.customPrompt.substring(0, 50) + '...',
       useMediator: modernConfig.useMediator
     });
 
@@ -160,66 +160,6 @@ export class SidekickManager {
   };
 
   /**
-   * Extract the complete AI response text from an element
-   * Special handling for different platforms to ensure we get the full text
-   */
-  private extractAIResponseText(element: HTMLElement): string | null {
-    if (!element || !element.textContent) {
-      return null;
-    }
-    
-    // Get the platform and try to extract the full text content
-    const platform = getPlatformName();
-    
-    // Try to get all text from this element and its children
-    let responseText = element.textContent.trim();
-    
-    // For Grok, we need special handling to get all content
-    if (platform === 'Grok') {
-      // Try to find the parent message container for more complete text
-      const messageContainer = element.closest('div[class*="message-bubble"]') || 
-                             element.closest('div[data-testid*="grok"]') ||
-                             element.closest('div[dir="auto"]');
-      
-      if (messageContainer) {
-        // Get all text content from the message container
-        const textElements = messageContainer.querySelectorAll('p, div[class*="break-words"]');
-        const fullText = Array.from(textElements)
-          .map(el => el.textContent?.trim())
-          .filter(text => text && text.length > 0)
-          .join('\n\n');
-          
-        if (fullText) {
-          responseText = fullText;
-        }
-      }
-    }
-    
-    // For Gemini, also need some special handling
-    if (platform === 'Gemini') {
-      // Try to find the full response container
-      const responseContainer = element.closest('.model-response-text') || 
-                              element.closest('.response-container');
-      
-      if (responseContainer) {
-        // Get all markdown blocks
-        const markdownElements = responseContainer.querySelectorAll('.markdown');
-        const fullText = Array.from(markdownElements)
-          .map(el => el.textContent?.trim())
-          .filter(text => text && text.length > 0)
-          .join('\n\n');
-          
-        if (fullText) {
-          responseText = fullText;
-        }
-      }
-    }
-    
-    console.log(`🤖 SidekickManager: Extracted ${responseText.length} chars of AI response from ${platform}`);
-    return responseText;
-  }
-
-  /**
    * Handle processing of a newly detected response
    */
   private async handleNewResponse(responseElement: HTMLElement) {
@@ -259,11 +199,42 @@ export class SidekickManager {
     if ('platform' in config && !('workerAI' in config)) {
       console.log('🔄 SidekickManager: Migrating legacy config format');
       const legacyConfig = config as LegacySidekickConfig;
+      
+      // Convert old role to custom prompt
+      const roleToPromptMap: { [key: string]: string } = {
+        'Critic': 'Analyze this response and provide critical feedback on accuracy, completeness, and potential improvements.',
+        'Fact-Checker': 'Verify the accuracy of claims in this response and identify any potential misinformation.',
+        'Alternative View': 'Provide alternative perspectives or different approaches to the topic discussed in this response.',
+        'Developer': 'Analyze this response from a technical/coding perspective and suggest improvements.',
+        'Analyst': 'Provide detailed analysis of this response, breaking down complex topics and identifying patterns.'
+      };
+      
       return {
         enabled: legacyConfig.enabled,
         workerAI: legacyConfig.platform,
-        role: legacyConfig.role,
+        customPrompt: roleToPromptMap[legacyConfig.role] || 'Analyze this response and provide helpful feedback.',
         useMediator: true, // Default to using mediator for migrated configs
+      };
+    }
+    
+    // Check if this is an old modern config that still has 'role' instead of 'customPrompt'
+    const anyConfig = config as any;
+    if ('role' in anyConfig && !('customPrompt' in anyConfig)) {
+      console.log('🔄 SidekickManager: Migrating role-based config to custom prompt');
+      
+      const roleToPromptMap: { [key: string]: string } = {
+        'Critic': 'Analyze this response and provide critical feedback on accuracy, completeness, and potential improvements.',
+        'Fact-Checker': 'Verify the accuracy of claims in this response and identify any potential misinformation.',
+        'Alternative View': 'Provide alternative perspectives or different approaches to the topic discussed in this response.',
+        'Developer': 'Analyze this response from a technical/coding perspective and suggest improvements.',
+        'Analyst': 'Provide detailed analysis of this response, breaking down complex topics and identifying patterns.'
+      };
+      
+      return {
+        enabled: anyConfig.enabled,
+        workerAI: anyConfig.workerAI,
+        customPrompt: roleToPromptMap[anyConfig.role] || 'Analyze this response and provide helpful feedback.',
+        useMediator: anyConfig.useMediator !== false,
       };
     }
     
@@ -272,7 +243,7 @@ export class SidekickManager {
     return {
       enabled: modernConfig.enabled,
       workerAI: modernConfig.workerAI,
-      role: modernConfig.role,
+      customPrompt: modernConfig.customPrompt || 'Analyze this response and provide helpful feedback.',
       useMediator: modernConfig.useMediator !== false, // Default to true if undefined
     };
   }
@@ -321,65 +292,6 @@ export class SidekickManager {
     }
   }
 
-  /**
-   * Find the most recent user prompt on the current platform
-   */
-  private findUserPrompt(): string {
-    const platform = getPlatformName();
-    
-    // Platform-specific selectors for user messages
-    const userSelectors: { [key: string]: string[] } = {
-      'ChatGPT': [
-        '[data-testid="user-message"]',
-        '[data-message-author-role="user"]',
-        '.font-user-message',
-        '[class*="user-message"]'
-      ],
-      'Claude': [
-        '[data-testid="user-message"]',
-        '[data-is-streaming="false"] .font-user-message',
-        '.human-message',
-        '[class*="user"]'
-      ],
-      'Gemini': [
-        '[data-test-id="user-message"]',
-        '.user-message',
-        '[class*="user"]',
-        '[role="presentation"] + [role="presentation"]'
-      ],
-      'Grok': [
-        // BUG FIX 1: Add Grok-specific selectors for user prompts
-        'div[data-testid="grok-user-message"]',
-        'div[class*="user-message"]',
-        'div[dir="auto"][class*="break-words"]:has(p)',
-        'div[class*="prose"] div[dir="auto"]',
-        '[data-testid*="user"] p',
-        'div[class*="message-bubble"][class*="user"] p'
-      ]
-    };
-
-    const selectors = userSelectors[platform] || userSelectors['ChatGPT'];
-    
-    for (const selector of selectors) {
-      try {
-        const userElements = document.querySelectorAll(selector);
-        if (userElements && userElements.length > 0) {
-          const lastUserElement = userElements[userElements.length - 1] as HTMLElement;
-          const promptText = lastUserElement.innerText?.trim();
-          
-          if (promptText && promptText.length > 0) {
-            console.log(`🤖 SidekickManager: Found user prompt: "${promptText.substring(0, 50)}${promptText.length > 50 ? '...' : ''}"`);
-            return promptText;
-          }
-        }
-      } catch (e) {
-        console.log(`🤖 SidekickManager: Error with selector "${selector}":`, e);
-      }
-    }
-    
-    console.warn('🤖 SidekickManager: Could not find user prompt');
-    return "User prompt not found";
-  }
 
   /**
    * Process a manually triggered AI response analysis
@@ -409,29 +321,27 @@ export class SidekickManager {
     this.lastProcessTime = now;
 
     try {
-      // STEP 1: Extract conversation context - IMPROVED to use the specific target element
-      const botResponse = this.extractAIResponseText(botResponseElement);
+      // STEP 1: Extract conversation context using ContextManager
+      const conversationContext = await ContextManager.getContext(this.platformName, botResponseElement);
       
-      if (!botResponse || botResponse.length < 3) {
-        console.warn('🤖 SidekickManager: Empty or too short response text, skipping analysis');
+      if (!conversationContext || conversationContext.messages.length === 0) {
+        console.warn('🤖 SidekickManager: Could not build context, skipping analysis');
         return;
       }
 
+      // Format conversation history for mediation
+      const conversationHistory = conversationContext.messages
+        .map((msg: { role: string; content: string }) => `${msg.role.toUpperCase()}: ${msg.content}`)
+        .join('\n\n');
+
+      console.log(`🤖 SidekickManager: Context built with ${conversationContext.messages.length} messages`);
+
       // BUG FIX 2: Check for duplicate content using hash to prevent processing same message multiple times
-      const messageHash = this.generateMessageHash(botResponse);
+      const messageHash = this.generateMessageHash(conversationHistory);
       if (this.processedMessageHashes.has(messageHash)) {
         console.log('🤖 SidekickManager: Message already processed (duplicate content), skipping');
         return;
       }
-
-      const userPrompt = this.findUserPrompt();
-      
-      if (!userPrompt || userPrompt === "User prompt not found" || userPrompt.length < 3) {
-        console.warn('🤖 SidekickManager: Could not find user prompt, skipping analysis');
-        return;
-      }
-
-      console.log(`🤖 SidekickManager: Context - User: "${userPrompt.substring(0, 50)}..." AI: "${botResponse.substring(0, 50)}..."`);
 
       // Mark this message as processed
       this.processedMessageHashes.add(messageHash);
@@ -443,48 +353,47 @@ export class SidekickManager {
         hashesArray.slice(-15).forEach(hash => this.processedMessageHashes.add(hash));
       }
 
-      // STEP 2: Store conversation context
-      ContextManager.addUserMessage(userPrompt);
-      ContextManager.addPrimaryResponseMessage(botResponse);
+      // STEP 2: Store conversation context in ContextManager
+      await ContextManager.addUserMessage(conversationContext.messages.find((m: { role: string; content: string }) => m.role === 'user')?.content || 'No user message found');
+      await ContextManager.addPrimaryResponseMessage(conversationContext.messages.find((m: { role: string; content: string }) => m.role === 'assistant')?.content || 'No assistant response found');
 
-      // STEP 3: Generate intelligent meta-prompt via MediatorService
-      let intelligentMetaPrompt: string;
+      // STEP 3: Mediate - Generate optimized prompt via MediatorService
+      let finalPrompt: string;
       
       if (this.currentConfig.useMediator) {
-        console.log('🧠 SidekickManager: Calling MediatorService for intelligent meta-prompt generation...');
+        console.log('🧠 SidekickManager: Step 1 - Calling MediatorService for prompt optimization...');
         
-        const mediationResult = await MediatorService.generateMetaPrompt(
-          this.currentConfig.role,
-          userPrompt,
-          botResponse,
+        const mediationResult = await MediatorService.generateMediatedPrompt(
+          this.currentConfig.customPrompt,
+          conversationHistory,
           this.currentConfig.workerAI
         );
         
         if (mediationResult.success && mediationResult.result) {
-          intelligentMetaPrompt = mediationResult.result;
-          console.log(`🧠 SidekickManager: Mediator generated intelligent prompt (confidence: ${mediationResult.metadata?.confidence})`);
+          finalPrompt = mediationResult.result;
+          console.log(`🧠 SidekickManager: Step 1 complete - Mediated prompt generated (confidence: ${mediationResult.metadata?.confidence})`);
         } else {
-          console.warn('🧠 SidekickManager: Mediator failed, falling back to template');
-          intelligentMetaPrompt = this.generateTemplatePrompt(userPrompt, botResponse);
+          console.warn('🧠 SidekickManager: Mediation failed, using direct custom prompt');
+          finalPrompt = `${this.currentConfig.customPrompt}\n\nContext:\n${conversationHistory}`;
         }
       } else {
-        console.log('📝 SidekickManager: Using template-based prompt generation (Mediator disabled)');
-        intelligentMetaPrompt = this.generateTemplatePrompt(userPrompt, botResponse);
+        console.log('📝 SidekickManager: Mediation disabled - Using direct custom prompt');
+        finalPrompt = `${this.currentConfig.customPrompt}\n\nContext:\n${conversationHistory}`;
       }
 
-      console.log(`🤖 SidekickManager: Generated meta-prompt: "${intelligentMetaPrompt.substring(0, 100)}..."`);
+      console.log(`🤖 SidekickManager: Final prompt ready: "${finalPrompt.substring(0, 100)}..."`);
 
-      // STEP 4: Send EXECUTE_SIDEKICK_TASK message to background script
-      console.log(`🚀 SidekickManager: Sending EXECUTE_SIDEKICK_TASK to background for ${this.currentConfig.workerAI}...`);
+      // STEP 4: Execute - Send EXECUTE_SIDEKICK_TASK message to background script
+      console.log(`🚀 SidekickManager: Step 2 - Sending EXECUTE_SIDEKICK_TASK to background for ${this.currentConfig.workerAI}...`);
       
       chrome.runtime.sendMessage({
         type: 'EXECUTE_SIDEKICK_TASK',
         platform: this.currentConfig.workerAI,
-        prompt: intelligentMetaPrompt,
+        prompt: finalPrompt,
         metadata: {
-          originalUserPrompt: userPrompt,
-          primaryResponse: botResponse,
-          role: this.currentConfig.role,
+          originalUserPrompt: conversationContext.messages.find((m: { role: string; content: string }) => m.role === 'user')?.content || '',
+          primaryResponse: conversationContext.messages.find((m: { role: string; content: string }) => m.role === 'assistant')?.content || '',
+          customPrompt: this.currentConfig.customPrompt,
           usedMediator: this.currentConfig.useMediator
         }
       }, (response) => {
@@ -497,7 +406,7 @@ export class SidekickManager {
             error: `Communication error: ${chrome.runtime.lastError.message}`,
             metadata: {
               workerAI: this.currentConfig?.workerAI || 'unknown',
-              role: this.currentConfig?.role || 'unknown'
+              customPrompt: this.currentConfig?.customPrompt.substring(0, 50) + '...' || 'unknown'
             }
           });
           return;
@@ -515,7 +424,7 @@ export class SidekickManager {
             analysis: response.analysis,
             metadata: {
               workerAI: this.currentConfig?.workerAI || 'unknown',
-              role: this.currentConfig?.role || 'unknown',
+              customPrompt: this.currentConfig?.customPrompt.substring(0, 50) + '...' || 'unknown',
               usedMediator: this.currentConfig?.useMediator || false,
               executionTime: response.executionTime
             }
@@ -531,7 +440,7 @@ export class SidekickManager {
             error: response?.error || 'Unknown error during Worker AI execution',
             metadata: {
               workerAI: this.currentConfig?.workerAI || 'unknown',
-              role: this.currentConfig?.role || 'unknown'
+              customPrompt: this.currentConfig?.customPrompt.substring(0, 50) + '...' || 'unknown'
             }
           });
         }
@@ -779,32 +688,6 @@ export class SidekickManager {
     }
   }
 
-  /**
-   * Generate a basic template-based prompt when Mediator is disabled
-   * This provides fallback functionality without requiring API calls
-   */
-  private generateTemplatePrompt(userPrompt: string, primaryResponse: string): string {
-    const roleTemplates = {
-      'Critic': 'As a critical analyst, examine the following AI response for potential issues, biases, missing information, or areas that could be improved. Be constructive and specific in your critique.',
-      'Fact-Checker': 'As a fact-checker, analyze the following AI response for accuracy. Identify any claims that should be verified, potential misinformation, or statements that need additional sources.',
-      'Alternative View': 'As a perspective analyst, provide alternative viewpoints or different approaches to the topic discussed in the following AI response. Consider contrarian views and unexplored angles.',
-      'Developer': 'As a technical reviewer, analyze the following response from a developer\'s perspective. Focus on code quality, best practices, potential bugs, and technical accuracy.',
-      'Analyst': 'As a detailed analyst, provide deeper analysis of the following response. Break down complex topics, identify patterns, and offer additional insights.'
-    };
-
-    const template = roleTemplates[this.currentConfig!.role] || 
-                    'As an AI assistant, provide thoughtful analysis of the following response.';
-
-    return `${template}
-
-Original User Question:
-${userPrompt}
-
-AI Response to Analyze:
-${primaryResponse}
-
-Your Analysis:`;
-  }
 }
 
 export default SidekickManager;
