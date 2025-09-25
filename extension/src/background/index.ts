@@ -1,3 +1,5 @@
+import MediatorService from '../services/MediatorService';
+
 // Define the Platform interface
 interface Platform {
   platform: string;
@@ -222,39 +224,36 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true; // Keep message channel open for async response
   }
 
-  // ✨ NEW: Handler for enhancing user prompts
+  // Handler for enhancing the user's prompt
   if (msg.type === 'ENHANCE_USER_PROMPT') {
     console.log('Background: Received ENHANCE_USER_PROMPT');
     
-    const enhancePrompt = async () => {
-      try {
-        // Import MediatorService dynamically to avoid circular dependencies
-        const MediatorService = (await import('../services/MediatorService')).default;
-        
-        const result = await MediatorService.enhancePrompt(msg.originalPrompt);
-        
+    // Ensure there's a prompt to enhance
+    if (!msg.originalPrompt) {
+      sendResponse({ success: false, error: 'No prompt provided to enhance.' });
+      return false; // Close the connection
+    }
+
+    // Call the MediatorService to get the enhanced prompt
+    MediatorService.enhancePrompt(msg.originalPrompt)
+      .then(result => {
         if (result.success && result.result) {
-          sendResponse({
-            success: true,
-            enhancedPrompt: result.result
-          });
+          console.log('Background: Prompt enhanced successfully.');
+          sendResponse({ success: true, enhancedPrompt: result.result });
         } else {
-          sendResponse({
-            success: false,
-            error: result.error || 'Failed to enhance prompt'
-          });
+          console.error('Background: Error enhancing prompt:', result.error);
+          sendResponse({ success: false, error: result.error || 'Failed to enhance prompt.' });
         }
-      } catch (error) {
-        console.error('Background: Error enhancing prompt:', error);
-        sendResponse({
-          success: false,
-          error: `Error enhancing prompt: ${error instanceof Error ? error.message : 'Unknown error'}`
+      })
+      .catch(error => {
+        console.error('Background: Critical error during prompt enhancement:', error);
+        sendResponse({ 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown critical error' 
         });
-      }
-    };
-    
-    enhancePrompt();
-    return true; // Keep message channel open for async response
+      });
+
+    return true; // Keep the message channel open for the async response
   }
 
   // ✨ NEW: Handler for chaining prompts between platforms
