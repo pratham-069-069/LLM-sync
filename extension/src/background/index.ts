@@ -222,6 +222,41 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true; // Keep message channel open for async response
   }
 
+  // ✨ NEW: Handler for enhancing user prompts
+  if (msg.type === 'ENHANCE_USER_PROMPT') {
+    console.log('Background: Received ENHANCE_USER_PROMPT');
+    
+    const enhancePrompt = async () => {
+      try {
+        // Import MediatorService dynamically to avoid circular dependencies
+        const MediatorService = (await import('../services/MediatorService')).default;
+        
+        const result = await MediatorService.enhancePrompt(msg.originalPrompt);
+        
+        if (result.success && result.result) {
+          sendResponse({
+            success: true,
+            enhancedPrompt: result.result
+          });
+        } else {
+          sendResponse({
+            success: false,
+            error: result.error || 'Failed to enhance prompt'
+          });
+        }
+      } catch (error) {
+        console.error('Background: Error enhancing prompt:', error);
+        sendResponse({
+          success: false,
+          error: `Error enhancing prompt: ${error instanceof Error ? error.message : 'Unknown error'}`
+        });
+      }
+    };
+    
+    enhancePrompt();
+    return true; // Keep message channel open for async response
+  }
+
   // ✨ NEW: Handler for chaining prompts between platforms
   if (msg.type === 'CHAIN_PROMPT') {
     console.log('Background: Received CHAIN_PROMPT with chain:', msg.chain);

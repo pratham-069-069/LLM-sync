@@ -283,6 +283,25 @@ export const getResponseSelectors = (platform: string): string[] => {
 };
 
 /**
+ * Gets the CSS selector for the container around the main text input for a given platform.
+ * This is where the Enhance button will be injected.
+ * @param {string} platform The current AI platform.
+ * @returns {string} The CSS selector for the prompt container.
+ */
+export const getPromptContainerSelector = (platform: string): string => {
+    switch (platform) {
+        case 'ChatGPT':
+            return 'div:has(> #prompt-textarea)';
+        case 'Claude':
+            return 'div:has(> .ProseMirror)';
+        case 'Grok':
+            return 'div[class*="composer"]';
+        default:
+            return 'div:has(> textarea)';
+    }
+};
+
+/**
  * Gets the CSS selector for the main chat container for a given platform.
  * This is used to observe for new messages.
  * @param {string} platform The current AI platform.

@@ -1,11 +1,13 @@
 import React from 'react';
 import UIRoot from '../components/UIRoot';
+import EnhanceButton from '../components/EnhanceButton';
 import { createRoot } from 'react-dom/client';
 import {
     getPlatformName,
     getInputSelectors,
     getSendButtonSelectors,
     getChatContainerSelector,
+    getPromptContainerSelector,
     waitForElement,
     setTextContent,
     clickSendButton,
@@ -114,8 +116,129 @@ const initializeUI = () => {
   console.log('✅ NexusMind UI Root injected.');
 };
 
+/**
+ * Injects the Enhance button into the prompt container
+ */
+const injectEnhanceButton = async () => {
+  const platform = getPlatformName();
+  console.log(`✨ Injecting Enhance button for ${platform}...`);
+  
+  try {
+    // Find the prompt container using the new selector
+    const containerSelector = getPromptContainerSelector(platform);
+    const promptContainer = await waitForElement(containerSelector, 5000);
+    
+    if (!promptContainer) {
+      console.warn(`⚠️ Could not find prompt container for ${platform} with selector: ${containerSelector}`);
+      return;
+    }
+    
+    console.log(`✅ Found prompt container for ${platform}`);
+    
+    // Create a container for the Enhance button
+    const buttonContainer = document.createElement('div');
+    buttonContainer.id = 'nexusmind-enhance-button-container';
+    buttonContainer.style.cssText = `
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 1000;
+    `;
+    
+    // Insert the button container into the prompt container
+    promptContainer.style.position = 'relative'; // Ensure relative positioning for absolute child
+    promptContainer.appendChild(buttonContainer);
+    
+    // Create React root and render the EnhanceButton
+    const root = createRoot(buttonContainer);
+    
+    const handleEnhanceClick = async () => {
+      try {
+        console.log('✨ Enhance button clicked, starting enhancement process...');
+        
+        // Find the prompt input element
+        let inputField: HTMLElement | null = null;
+        const inputSelectors = getInputSelectors(platform);
+        
+        for (const selector of inputSelectors) {
+          try {
+            inputField = await waitForElement(selector, 1000);
+            if (inputField) {
+              console.log(`✅ Found input field with selector: ${selector}`);
+              break;
+            }
+          } catch (err) {
+            console.log(`⚠️ Input selector failed: ${selector}`);
+          }
+        }
+        
+        if (!inputField) {
+          console.error('❌ Could not find input field for enhancement');
+          return;
+        }
+        
+        // Read current prompt text
+        const currentPrompt = inputField.innerText || inputField.textContent || (inputField as HTMLTextAreaElement).value || '';
+        
+        if (!currentPrompt.trim()) {
+          console.log('⚠️ No prompt text found, skipping enhancement');
+          return;
+        }
+        
+        console.log(`📝 Current prompt: "${currentPrompt.substring(0, 100)}..."`);
+        
+        // Set loading state
+        root.render(<EnhanceButton onClick={handleEnhanceClick} isLoading={true} />);
+        
+        // Send enhancement request to background script
+        chrome.runtime.sendMessage({
+          type: 'ENHANCE_USER_PROMPT',
+          originalPrompt: currentPrompt
+        }, (response) => {
+          try {
+            if (chrome.runtime.lastError) {
+              console.error('❌ Error sending enhancement request:', chrome.runtime.lastError);
+              root.render(<EnhanceButton onClick={handleEnhanceClick} isLoading={false} />);
+              return;
+            }
+            
+            if (response.success && response.enhancedPrompt) {
+              console.log(`✨ Enhancement successful! Enhanced prompt: "${response.enhancedPrompt.substring(0, 100)}..."`);
+              
+              // Replace the text in the input field
+              setTextContent(inputField, response.enhancedPrompt, platform);
+              
+              console.log('✅ Enhanced prompt applied to input field');
+            } else {
+              console.error('❌ Enhancement failed:', response.error);
+            }
+          } catch (error) {
+            console.error('❌ Error processing enhancement response:', error);
+          } finally {
+            // Reset loading state
+            root.render(<EnhanceButton onClick={handleEnhanceClick} isLoading={false} />);
+          }
+        });
+        
+      } catch (error) {
+        console.error('❌ Error during enhancement process:', error);
+        root.render(<EnhanceButton onClick={handleEnhanceClick} isLoading={false} />);
+      }
+    };
+    
+    // Render the initial button
+    root.render(<EnhanceButton onClick={handleEnhanceClick} isLoading={false} />);
+    
+    console.log(`✅ Enhance button injected successfully for ${platform}`);
+    
+  } catch (error) {
+    console.error(`❌ Error injecting Enhance button for ${platform}:`, error);
+  }
+};
+
 // --- Initialization ---
 initializeUI();
+injectEnhanceButton();
 
 // Main message listener
 if (typeof chrome !== 'undefined' && chrome.runtime) {
