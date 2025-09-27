@@ -295,7 +295,7 @@ export const getPromptContainerSelector = (platform: string): string => {
         case 'Claude':
             return 'div:has(> .ProseMirror)';
         case 'Grok':
-            return 'div[class*="composer"]';
+            return 'div.query-bar.group';
         default:
             return 'div:has(> textarea)';
     }

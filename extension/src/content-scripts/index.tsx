@@ -152,9 +152,10 @@ const injectEnhanceButton = async () => {
     // Create React root and render the EnhanceButton
     const root = createRoot(buttonContainer);
     
-    const handleEnhanceClick = async () => {
+    // Standalone function to trigger enhancement
+    const triggerEnhancement = async () => {
       try {
-        console.log('✨ Enhance button clicked, starting enhancement process...');
+        console.log('✨ Triggering enhancement process...');
         
         // Find the prompt input element
         let inputField: HTMLElement | null = null;
@@ -188,7 +189,7 @@ const injectEnhanceButton = async () => {
         console.log(`📝 Current prompt: "${currentPrompt.substring(0, 100)}..."`);
         
         // Set loading state
-        root.render(<EnhanceButton onClick={handleEnhanceClick} isLoading={true} />);
+        root.render(<EnhanceButton onClick={triggerEnhancement} isLoading={true} />);
         
         // Send enhancement request to background script
         chrome.runtime.sendMessage({
@@ -198,7 +199,7 @@ const injectEnhanceButton = async () => {
           try {
             if (chrome.runtime.lastError) {
               console.error('❌ Error sending enhancement request:', chrome.runtime.lastError);
-              root.render(<EnhanceButton onClick={handleEnhanceClick} isLoading={false} />);
+              root.render(<EnhanceButton onClick={triggerEnhancement} isLoading={false} />);
               return;
             }
             
@@ -216,18 +217,60 @@ const injectEnhanceButton = async () => {
             console.error('❌ Error processing enhancement response:', error);
           } finally {
             // Reset loading state
-            root.render(<EnhanceButton onClick={handleEnhanceClick} isLoading={false} />);
+            root.render(<EnhanceButton onClick={triggerEnhancement} isLoading={false} />);
           }
         });
         
       } catch (error) {
         console.error('❌ Error during enhancement process:', error);
-        root.render(<EnhanceButton onClick={handleEnhanceClick} isLoading={false} />);
+        root.render(<EnhanceButton onClick={triggerEnhancement} isLoading={false} />);
       }
     };
     
+    // Add keyboard shortcut listener to the input field
+    const addKeyboardShortcut = async () => {
+      try {
+        // Find the prompt input element for keyboard listener
+        let inputField: HTMLElement | null = null;
+        const inputSelectors = getInputSelectors(platform);
+        
+        for (const selector of inputSelectors) {
+          try {
+            inputField = await waitForElement(selector, 1000);
+            if (inputField) {
+              console.log(`✅ Found input field for keyboard shortcut with selector: ${selector}`);
+              break;
+            }
+          } catch (err) {
+            console.log(`⚠️ Input selector failed for keyboard shortcut: ${selector}`);
+          }
+        }
+        
+        if (inputField) {
+          // Add keyboard event listener
+          inputField.addEventListener('keydown', (event) => {
+            // Check for Ctrl + Shift + E shortcut
+            if (event.ctrlKey && event.shiftKey && event.key === 'E') {
+              event.preventDefault(); // Stop any default browser behavior
+              console.log('⌨️ Keyboard shortcut Ctrl+Shift+E detected, triggering enhancement...');
+              triggerEnhancement();
+            }
+          });
+          
+          console.log('⌨️ Keyboard shortcut (Ctrl+Shift+E) listener added to input field');
+        } else {
+          console.warn('⚠️ Could not find input field for keyboard shortcut listener');
+        }
+      } catch (error) {
+        console.error('❌ Error adding keyboard shortcut listener:', error);
+      }
+    };
+    
+    // Add the keyboard shortcut listener
+    addKeyboardShortcut();
+    
     // Render the initial button
-    root.render(<EnhanceButton onClick={handleEnhanceClick} isLoading={false} />);
+    root.render(<EnhanceButton onClick={triggerEnhancement} isLoading={false} />);
     
     console.log(`✅ Enhance button injected successfully for ${platform}`);
     
