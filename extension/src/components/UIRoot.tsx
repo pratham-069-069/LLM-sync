@@ -1003,11 +1003,15 @@ const UIRoot: React.FC = () => {
     <>
       {/* Conditional rendering based on platform capabilities */}
       
-      {/* Traditional highlighter for platforms that support inline highlighting */}
+      {/* Enhanced highlighter for platforms that support inline highlighting */}
       {features.inlineHighlighting && highlighter && (
         <Highlighter
           position={highlighter}
           onSelectColor={applyHighlight}
+          onAnalyzeComplete={() => {
+            setHighlighter(null);
+            setCurrentSelection(null);
+          }}
         />
       )}
       
