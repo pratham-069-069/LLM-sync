@@ -97,17 +97,11 @@ const UIRoot: React.FC = () => {
           left: window.scrollX + rect.left + rect.width / 2,
         });
         setCurrentSelection(selection);
-        
-        // Show keyboard shortcut hint if supported
-        if (features.keyboardShortcuts) {
-          showKeyboardShortcutHint(rect);
-        }
       }
     } else {
       activeSelectionRef.current = null;
       setHighlighter(null);
       setCurrentSelection(null);
-      hideKeyboardShortcutHint();
     }
   }, [isWithinAIResponse, features]);
 
@@ -261,7 +255,6 @@ const UIRoot: React.FC = () => {
     setHighlighter(null);
     setCurrentSelection(null);
     activeSelectionRef.current = null;
-    hideKeyboardShortcutHint();
   };
 
   /**
@@ -319,72 +312,6 @@ const UIRoot: React.FC = () => {
         style.remove();
       }, 300);
     }, 2000);
-  };
-
-  /**
-   * Shows keyboard shortcut hints when text is selected.
-   */
-  const showKeyboardShortcutHint = (rect: DOMRect) => {
-    // Remove any existing hint
-    hideKeyboardShortcutHint();
-    
-    const hint = document.createElement('div');
-    hint.id = 'nexusmind-shortcut-hint';
-    hint.innerHTML = `
-      <div style="font-weight: 600; margin-bottom: 4px; color: #333;">Keyboard Shortcuts:</div>
-      <div>Alt+Shift+1: <span style="color: #FFD700;">●</span> Yellow</div>
-      <div>Alt+Shift+2: <span style="color: #4169E1;">●</span> Blue</div>
-      <div>Alt+Shift+3: <span style="color: #32CD32;">●</span> Green</div>
-      <div>Alt+Shift+4: <span style="color: #FF4444;">●</span> Red</div>
-      <div>Alt+Shift+5: <span style="color: #9370DB;">●</span> Purple</div>
-      <div style="font-size: 0.9em; margin-top: 4px; color: #666;">(Works with !@#$% symbols too)</div>
-    `;
-    hint.style.cssText = `
-      position: absolute;
-      top: ${rect.top + window.scrollY + rect.height + 5}px;
-      left: ${rect.left + window.scrollX}px;
-      background: white;
-      border: 1px solid #e0e0e0;
-      border-radius: 6px;
-      padding: 8px 12px;
-      font-size: 11px;
-      font-family: system-ui, -apple-system, sans-serif;
-      line-height: 1.4;
-      z-index: 10000;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-      max-width: 200px;
-      animation: fadeIn 0.2s ease;
-    `;
-    
-    // Add fade in animation
-    const style = document.createElement('style');
-    style.id = 'nexusmind-hint-styles';
-    style.textContent = `
-      @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(-5px); }
-        to { opacity: 1; transform: translateY(0); }
-      }
-    `;
-    if (!document.getElementById('nexusmind-hint-styles')) {
-      document.head.appendChild(style);
-    }
-    
-    document.body.appendChild(hint);
-    
-    // Auto-hide after 4 seconds
-    setTimeout(() => {
-      hideKeyboardShortcutHint();
-    }, 4000);
-  };
-
-  /**
-   * Hides the keyboard shortcut hint.
-   */
-  const hideKeyboardShortcutHint = () => {
-    const existingHint = document.getElementById('nexusmind-shortcut-hint');
-    if (existingHint) {
-      existingHint.remove();
-    }
   };
 
   // Render the SidekickResponse components using portals
