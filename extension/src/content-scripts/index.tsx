@@ -283,6 +283,31 @@ const injectEnhanceButton = async () => {
 initializeUI();
 injectEnhanceButton();
 
+// Add window message listener for messages from React components
+window.addEventListener('message', (event) => {
+    // Only handle messages from the same origin for security
+    if (event.source !== window) return;
+    
+    const message = event.data;
+    
+    if (message.type === 'PERFORM_ANALYSIS') {
+        console.log('🤖 Content Script: Received PERFORM_ANALYSIS from React component, forwarding to background script');
+        
+        // Forward the analysis request to the background script
+        chrome.runtime.sendMessage({
+            type: 'ANALYZE_TEXT',
+            text: message.text,
+            config: message.config
+        }, () => {
+            if (chrome.runtime.lastError) {
+                console.error('❌ Error forwarding analysis request:', chrome.runtime.lastError);
+            } else {
+                console.log('✅ Analysis request forwarded successfully');
+            }
+        });
+    }
+});
+
 // Main message listener
 if (typeof chrome !== 'undefined' && chrome.runtime) {
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

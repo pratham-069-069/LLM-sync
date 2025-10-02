@@ -123,24 +123,24 @@ const Highlighter: React.FC<HighlighterProps> = ({ position, onSelectColor, onAn
         sidekickManager.configure(sidekickConfig);
       }
       
-      console.log('About to call analyzeMessage with:', {
-        sidekickManager,
-        sidekickConfig,
-        isInitialized: sidekickManager.isInitialized
-      });
+      console.log('Sending analysis request to content script with text:', selectedText.substring(0, 100) + '...');
       
       try {
-        // Use SidekickManager to analyze the response
-        const result = await sidekickManager.analyzeMessage(responseElement);
-        console.log('Analysis result:', result);
+        // Send message to content script instead of directly using SidekickManager
+        window.postMessage({
+          type: 'PERFORM_ANALYSIS',
+          text: selectedText,
+          config: sidekickConfig
+        }, '*');
         
-        if (!result || !result.success) {
-          console.error('Analysis failed:', result?.error);
-        }
+        console.log('Analysis request sent to content script');
+        
+        // Clear the selection and call completion callback
+        window.getSelection()?.removeAllRanges();
+        onAnalyzeComplete?.();
+        setIsAnalyzing(false);
       } catch (innerError) {
         console.error('Analysis process failed:', innerError);
-      } finally {
-        // Clear the selection and call completion callback
         window.getSelection()?.removeAllRanges();
         onAnalyzeComplete?.();
         setIsAnalyzing(false);
