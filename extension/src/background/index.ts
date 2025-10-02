@@ -44,6 +44,50 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // Indicates we'll send a response asynchronously
   }
   
+  // --- PART 2: HIGHLIGHT STORAGE HANDLERS ---
+  
+  // Handler to save a highlight
+  if (msg.type === 'SAVE_HIGHLIGHT') {
+    console.log('Background: Saving highlight', msg.highlight);
+    
+    chrome.storage.local.get([msg.highlight.url], (result) => {
+      const highlights = result[msg.highlight.url] || [];
+      highlights.push(msg.highlight);
+      
+      chrome.storage.local.set({
+        [msg.highlight.url]: highlights
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.error('Error saving highlight:', chrome.runtime.lastError);
+          sendResponse({ success: false, error: chrome.runtime.lastError.message });
+        } else {
+          console.log('Highlight saved successfully');
+          sendResponse({ success: true });
+        }
+      });
+    });
+    
+    return true; // Async response
+  }
+  
+  // Handler to get highlights for a URL
+  if (msg.type === 'GET_HIGHLIGHTS_FOR_URL') {
+    console.log('Background: Getting highlights for URL', msg.url);
+    
+    chrome.storage.local.get([msg.url], (result) => {
+      if (chrome.runtime.lastError) {
+        console.error('Error getting highlights:', chrome.runtime.lastError);
+        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+      } else {
+        const highlights = result[msg.url] || [];
+        console.log(`Found ${highlights.length} highlights for URL`);
+        sendResponse({ success: true, highlights });
+      }
+    });
+    
+    return true; // Async response
+  }
+  
   // Handler to get a list of currently open LLM tabs
   if (msg.type === 'GET_AVAILABLE_PLATFORMS') {
     getAvailablePlatforms().then(platforms => {

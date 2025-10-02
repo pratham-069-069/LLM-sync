@@ -2,6 +2,7 @@ import React from 'react';
 import UIRoot from '../components/UIRoot';
 import EnhanceButton from '../components/EnhanceButton';
 import { createRoot } from 'react-dom/client';
+import { restoreHighlights } from './dom_utils';
 import {
     getPlatformName,
     getInputSelectors,
@@ -282,6 +283,25 @@ const injectEnhanceButton = async () => {
 // --- Initialization ---
 initializeUI();
 injectEnhanceButton();
+
+// --- PART 3: HIGHLIGHT RESTORATION ON PAGE LOAD ---
+// Restore highlights when page loads
+const initializeHighlights = async () => {
+  try {
+    console.log('🎨 Initializing highlight restoration...');
+    
+    // Wait a bit for the page to stabilize
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    const restoredCount = await restoreHighlights();
+    console.log(`🎨 Restored ${restoredCount} highlights on page load`);
+  } catch (error) {
+    console.error('🎨 Error restoring highlights:', error);
+  }
+};
+
+// Initialize highlights after a short delay to let the page load
+setTimeout(initializeHighlights, 2000);
 
 // Add window message listener for messages from React components
 window.addEventListener('message', (event) => {

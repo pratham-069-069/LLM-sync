@@ -5,7 +5,7 @@ import SidePanel from './SidePanel';
 import SidekickResponse from './SidekickResponse';
 import type { Highlight } from '../types';
 import { useStorage } from '../hooks/useStorage';
-import { createHighlight, getPlatformName, getResponseSelectors, debugResponseContainers, getSupportedFeatures } from '../content-scripts/dom_utils';
+import { createHighlight, getPlatformName, getResponseSelectors, debugResponseContainers, getSupportedFeatures, highlightSelection } from '../content-scripts/dom_utils';
 import { SidekickManager } from '../services/SidekickManager';
 
 /**
@@ -175,40 +175,41 @@ const UIRoot: React.FC = () => {
    * Applies the selected color as a highlight.
    */
   const applyHighlight = async (color: Highlight['color']) => {
-    if (!currentSelection || !currentSelection.rangeCount) return;
+    console.log(`🎨 Applying advanced highlight with color: ${color}`);
     
-    console.log(`Applying highlight with color: ${color}`);
-    const range = currentSelection.getRangeAt(0);
-    const text = currentSelection.toString().trim();
-    if (!text) return;
-
-    console.log(`Selected text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
-    
-    // Create a unique ID for the highlight
-    const id = `nexusmind-highlight-${Date.now()}`;
-    console.log(`Generated highlight ID: ${id}`);
-
-    // Use our DOM utility to apply the highlight
-    console.log(`Calling createHighlight for platform: ${getPlatformName()}`);
-    const success = await createHighlight(range, color, id);
-    console.log(`Highlight creation result: ${success ? 'Success' : 'Failed'}`);
+    // Use the new advanced highlighting system
+    const success = await highlightSelection(color);
+    console.log(`🎨 Advanced highlight result: ${success ? 'Success' : 'Failed'}`);
     
     if (success) {
-      // Save the new highlight to storage
-      const newHighlight: Highlight = {
-        id,
-        url: window.location.href,
-        text,
-        color,
-        timestamp: Date.now(),
-        platform: getPlatformName(),
-      };
-      setHighlights([newHighlight, ...(highlights || [])]);
-      console.log(`Highlight saved to storage, total highlights: ${(highlights || []).length + 1}`);
+      console.log(`🎨 Highlight created and saved successfully`);
+      
+      // Update local highlights list from storage to reflect the new highlight
+      const currentUrl = window.location.href;
+      chrome.runtime.sendMessage({
+        type: 'GET_HIGHLIGHTS_FOR_URL',
+        url: currentUrl
+      }, (response) => {
+        if (response && response.highlights) {
+          // Convert to our format for compatibility
+          const formattedHighlights = response.highlights.map((h: any) => ({
+            id: h.id,
+            url: h.url,
+            text: h.text,
+            color: h.color,
+            timestamp: h.timestamp,
+            platform: getPlatformName()
+          }));
+          setHighlights(formattedHighlights);
+          console.log(`🎨 Updated local highlights: ${formattedHighlights.length} total`);
+        }
+      });
     }
 
     // Clear the selection and hide the highlighter
-    currentSelection.removeAllRanges();
+    if (currentSelection) {
+      currentSelection.removeAllRanges();
+    }
     setHighlighter(null);
     setCurrentSelection(null);
   };  /**

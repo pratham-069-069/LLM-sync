@@ -998,9 +998,383 @@ const ensureHighlightStylesExist = () => {
   console.log('✅ NexusMind highlight styles added to document');
 };
 
+// --- PART 1: ADVANCED HIGHLIGHT CREATION ---
+
 /**
- * Stores highlight data for future reference (simplified since position data is stored in overlay elements)
+ * Advanced highlight selection function that handles complex selections without breaking DOM
+ * @param color The highlight color to apply
+ * @returns Promise<boolean> Success status
  */
+export const highlightSelection = async (color: string): Promise<boolean> => {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) {
+    console.warn('No selection found');
+    return false;
+  }
+
+  const range = selection.getRangeAt(0);
+  const selectedText = range.toString().trim();
+  
+  if (!selectedText) {
+    console.warn('Empty selection');
+    return false;
+  }
+
+  console.log(`Creating advanced highlight with color: ${color}`);
+  
+  try {
+    // Generate unique ID for this highlight
+    const highlightId = `nexus-highlight-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Serialize the range for storage
+    const serializedRange = serializeRange(range);
+    
+    // Create highlight using advanced node iteration
+    const success = await createAdvancedHighlight(range, color, highlightId);
+    
+    if (success) {
+      // Send to background script for storage
+      chrome.runtime.sendMessage({
+        type: 'SAVE_HIGHLIGHT',
+        highlight: {
+          id: highlightId,
+          text: selectedText,
+          color: color,
+          url: window.location.href,
+          serializedRange: serializedRange,
+          timestamp: Date.now()
+        }
+      });
+      
+      // Clear selection
+      selection.removeAllRanges();
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Error in highlightSelection:', error);
+    return false;
+  }
+};
+
+/**
+ * Creates highlight by iterating through text nodes without using surroundContents
+ * @param range The selection range
+ * @param color The highlight color
+ * @param highlightId Unique identifier
+ * @returns Promise<boolean> Success status
+ */
+const createAdvancedHighlight = async (range: Range, color: string, highlightId: string): Promise<boolean> => {
+  try {
+    // Get all text nodes within the range
+    const textNodes = getTextNodesInRange(range);
+    
+    if (textNodes.length === 0) {
+      console.warn('No text nodes found in range');
+      return false;
+    }
+
+    console.log(`Processing ${textNodes.length} text nodes for highlighting`);
+    
+    // Process each text node
+    for (const nodeInfo of textNodes) {
+      const { node, startOffset, endOffset } = nodeInfo;
+      
+      // Create highlight element
+      const highlight = document.createElement('nexus-highlight');
+      highlight.style.cssText = `background-color: ${getCssColorForHighlight(color)}; border-radius: 2px;`;
+      highlight.dataset.highlightId = highlightId;
+      highlight.dataset.color = color;
+      
+      // Split the text node and wrap the selected portion
+      if (startOffset === 0 && endOffset === node.textContent!.length) {
+        // Wrap entire text node
+        const parent = node.parentNode!;
+        parent.insertBefore(highlight, node);
+        highlight.appendChild(node);
+      } else {
+        // Split text node and wrap middle portion
+        const parent = node.parentNode!;
+        const beforeText = node.textContent!.substring(0, startOffset);
+        const highlightText = node.textContent!.substring(startOffset, endOffset);
+        const afterText = node.textContent!.substring(endOffset);
+        
+        // Create new text nodes
+        if (beforeText) {
+          const beforeNode = document.createTextNode(beforeText);
+          parent.insertBefore(beforeNode, node);
+        }
+        
+        highlight.textContent = highlightText;
+        parent.insertBefore(highlight, node);
+        
+        if (afterText) {
+          const afterNode = document.createTextNode(afterText);
+          parent.insertBefore(afterNode, node);
+        }
+        
+        // Remove original node
+        parent.removeChild(node);
+      }
+    }
+    
+    console.log(`Successfully created highlight with ${textNodes.length} parts`);
+    return true;
+    
+  } catch (error) {
+    console.error('Error in createAdvancedHighlight:', error);
+    return false;
+  }
+};
+
+/**
+ * Gets all text nodes within a range with their relative offsets
+ * @param range The selection range
+ * @returns Array of text nodes with offset information
+ */
+const getTextNodesInRange = (range: Range): Array<{node: Text, startOffset: number, endOffset: number}> => {
+  const textNodes: Array<{node: Text, startOffset: number, endOffset: number}> = [];
+  
+  // Create tree walker to find text nodes
+  const walker = document.createTreeWalker(
+    range.commonAncestorContainer,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode: (node) => {
+        if (range.intersectsNode(node)) {
+          return NodeFilter.FILTER_ACCEPT;
+        }
+        return NodeFilter.FILTER_REJECT;
+      }
+    }
+  );
+  
+  let currentNode: Text | null;
+  while ((currentNode = walker.nextNode() as Text)) {
+    if (currentNode.textContent) {
+      let startOffset = 0;
+      let endOffset = currentNode.textContent.length;
+      
+      // Calculate precise offsets for this text node
+      if (currentNode === range.startContainer) {
+        startOffset = range.startOffset;
+      }
+      if (currentNode === range.endContainer) {
+        endOffset = range.endOffset;
+      }
+      
+      // Only include if there's actual text to highlight
+      if (startOffset < endOffset) {
+        textNodes.push({
+          node: currentNode,
+          startOffset,
+          endOffset
+        });
+      }
+    }
+  }
+  
+  return textNodes;
+};
+
+/**
+ * Gets CSS color value for highlight color name
+ * @param color Color name
+ * @returns CSS color value
+ */
+const getCssColorForHighlight = (color: string): string => {
+  const colors: Record<string, string> = {
+    yellow: 'rgba(255, 255, 0, 0.3)',
+    green: 'rgba(0, 255, 0, 0.3)',
+    blue: 'rgba(0, 123, 255, 0.3)',
+    red: 'rgba(255, 0, 0, 0.3)',
+    purple: 'rgba(128, 0, 128, 0.3)'
+  };
+  return colors[color] || colors.yellow;
+};
+
+// --- PART 2: RANGE SERIALIZATION ---
+
+/**
+ * Serializes a Range object to XPath-based coordinates for storage
+ * @param range The Range to serialize
+ * @returns Serialized range data
+ */
+export const serializeRange = (range: Range): {
+  startPath: string;
+  startOffset: number;
+  endPath: string;
+  endOffset: number;
+} => {
+  return {
+    startPath: getXPathForNode(range.startContainer),
+    startOffset: range.startOffset,
+    endPath: getXPathForNode(range.endContainer),
+    endOffset: range.endOffset
+  };
+};
+
+/**
+ * Generates XPath for a DOM node
+ * @param node The node to generate XPath for
+ * @returns XPath string
+ */
+const getXPathForNode = (node: Node): string => {
+  const parts: string[] = [];
+  let currentNode: Node | null = node;
+  
+  while (currentNode && currentNode.nodeType !== Node.DOCUMENT_NODE) {
+    let index = 0;
+    let sibling = currentNode.previousSibling;
+    
+    while (sibling) {
+      if (sibling.nodeType === currentNode.nodeType && sibling.nodeName === currentNode.nodeName) {
+        index++;
+      }
+      sibling = sibling.previousSibling;
+    }
+    
+    const tagName = currentNode.nodeType === Node.TEXT_NODE ? 'text()' : currentNode.nodeName.toLowerCase();
+    const part = index > 0 ? `${tagName}[${index + 1}]` : tagName;
+    parts.unshift(part);
+    
+    currentNode = currentNode.parentNode;
+  }
+  
+  return '/' + parts.join('/');
+};
+
+// --- PART 3: HIGHLIGHT RESTORATION ---
+
+/**
+ * Deserializes XPath-based range data back to a Range object
+ * @param serializedRange The serialized range data
+ * @returns Range object or null if deserialization fails
+ */
+export const deserializeRange = (serializedRange: {
+  startPath: string;
+  startOffset: number;
+  endPath: string;
+  endOffset: number;
+}): Range | null => {
+  try {
+    const startNode = getNodeByXPath(serializedRange.startPath);
+    const endNode = getNodeByXPath(serializedRange.endPath);
+    
+    if (!startNode || !endNode) {
+      console.warn('Could not find nodes for XPath:', serializedRange);
+      return null;
+    }
+    
+    const range = document.createRange();
+    range.setStart(startNode, serializedRange.startOffset);
+    range.setEnd(endNode, serializedRange.endOffset);
+    
+    return range;
+  } catch (error) {
+    console.error('Error deserializing range:', error);
+    return null;
+  }
+};
+
+/**
+ * Gets a DOM node by its XPath
+ * @param xpath The XPath string
+ * @returns The node or null if not found
+ */
+const getNodeByXPath = (xpath: string): Node | null => {
+  try {
+    const result = document.evaluate(
+      xpath,
+      document,
+      null,
+      XPathResult.FIRST_ORDERED_NODE_TYPE,
+      null
+    );
+    return result.singleNodeValue;
+  } catch (error) {
+    console.error('Error evaluating XPath:', xpath, error);
+    return null;
+  }
+};
+
+/**
+ * Reapplies a saved highlight to the page
+ * @param highlightData The saved highlight data
+ * @returns Promise<boolean> Success status
+ */
+export const reapplyHighlight = async (highlightData: {
+  id: string;
+  text: string;
+  color: string;
+  serializedRange: any;
+}): Promise<boolean> => {
+  try {
+    const range = deserializeRange(highlightData.serializedRange);
+    if (!range) {
+      console.warn('Could not deserialize range for highlight:', highlightData.id);
+      return false;
+    }
+    
+    // Verify the text still matches (content hasn't changed)
+    const currentText = range.toString();
+    if (currentText !== highlightData.text) {
+      console.warn('Text content has changed, skipping highlight:', highlightData.id);
+      return false;
+    }
+    
+    // Reapply the highlight using the same logic as new highlights
+    return await createAdvancedHighlight(range, highlightData.color, highlightData.id);
+  } catch (error) {
+    console.error('Error reapplying highlight:', error);
+    return false;
+  }
+};
+
+/**
+ * Restores all highlights for the current page
+ * @returns Promise<number> Number of highlights restored
+ */
+export const restoreHighlights = async (): Promise<number> => {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({
+      type: 'GET_HIGHLIGHTS_FOR_URL',
+      url: window.location.href
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('Error getting highlights:', chrome.runtime.lastError);
+        resolve(0);
+        return;
+      }
+      
+      if (!response || !response.highlights) {
+        console.log('No highlights found for current URL');
+        resolve(0);
+        return;
+      }
+      
+      console.log(`Restoring ${response.highlights.length} highlights`);
+      let restoredCount = 0;
+      
+      // Process highlights sequentially with async/await
+      const processHighlights = async () => {
+        for (const highlight of response.highlights) {
+          const success = await reapplyHighlight(highlight);
+          if (success) {
+            restoredCount++;
+          }
+        }
+        
+        console.log(`Successfully restored ${restoredCount} highlights`);
+        resolve(restoredCount);
+      };
+      
+      processHighlights();
+    });
+  });
+};
+
 /**
  * Debug function to help identify correct response container selectors for each platform.
  * Call this in the console to see what selectors are available on the current page.
