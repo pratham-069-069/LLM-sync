@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import type { Highlight } from '../types';
 import { useStorage } from '../hooks/useStorage';
-import { SidekickManager } from '../services/SidekickManager';
 import { getPlatformName, getResponseSelectors } from '../content-scripts/dom_utils';
 
 // Define the colors that can be used for highlighting.
@@ -27,18 +26,8 @@ const Highlighter: React.FC<HighlighterProps> = ({ position, onSelectColor, onAn
     { enabled: false, workerAI: 'Claude', customPrompt: 'Analyze this response and provide critical feedback on accuracy, completeness, and potential improvements.', useMediator: true }
   );
 
-  // Configure SidekickManager when component mounts or config changes
-  useEffect(() => {
-    if (sidekickConfig && sidekickConfig.enabled) {
-      console.log('Configuring SidekickManager with:', sidekickConfig);
-      const sidekickManager = SidekickManager.getInstance();
-      
-      // Use the configure method to set up SidekickManager
-      sidekickManager.configure(sidekickConfig);
-      
-      console.log('SidekickManager configured successfully');
-    }
-  }, [sidekickConfig]);
+  // Note: SidekickManager configuration is handled by UIRoot component
+  // to avoid duplicate configuration calls
 
   if (!position.top && !position.left) {
     return null;
@@ -112,15 +101,6 @@ const Highlighter: React.FC<HighlighterProps> = ({ position, onSelectColor, onAn
         responseElement = document.createElement('div');
         responseElement.textContent = selectedText;
         // Don't append it to DOM, just use it as a container
-      }
-      
-      // Get the SidekickManager instance and ensure it's configured
-      const sidekickManager = SidekickManager.getInstance();
-      
-      // Double-check that it's configured before proceeding
-      if (sidekickConfig && sidekickConfig.enabled) {
-        console.log('Re-configuring SidekickManager before analysis:', sidekickConfig);
-        sidekickManager.configure(sidekickConfig);
       }
       
       console.log('Sending analysis request to content script with text:', selectedText.substring(0, 100) + '...');

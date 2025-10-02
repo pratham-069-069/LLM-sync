@@ -285,26 +285,37 @@ injectEnhanceButton();
 
 // Add window message listener for messages from React components
 window.addEventListener('message', (event) => {
-    // Only handle messages from the same origin for security
-    if (event.source !== window) return;
+    // Make sure the message is from our extension
+    if (event.source !== window || !event.data || typeof event.data !== 'object') return;
     
-    const message = event.data;
+    const { type, text, config } = event.data;
     
-    if (message.type === 'PERFORM_ANALYSIS') {
+    if (type === 'PERFORM_ANALYSIS') {
         console.log('🤖 Content Script: Received PERFORM_ANALYSIS from React component, forwarding to background script');
         
-        // Forward the analysis request to the background script
-        chrome.runtime.sendMessage({
-            type: 'ANALYZE_TEXT',
-            text: message.text,
-            config: message.config
-        }, () => {
-            if (chrome.runtime.lastError) {
-                console.error('❌ Error forwarding analysis request:', chrome.runtime.lastError);
-            } else {
-                console.log('✅ Analysis request forwarded successfully');
+        // Send message to background script with a proper callback
+        chrome.runtime.sendMessage(
+            { 
+                type: 'EXECUTE_SIDEKICK_TASK', // Use the correct message type that background expects
+                platform: config?.workerAI?.toLowerCase() || 'claude',
+                prompt: `${config?.customPrompt || 'Analyze this:'} ${text}`
+            },
+            (response) => {
+                // Handle the response from background script
+                if (chrome.runtime.lastError) {
+                    console.error('❌ Error from background script:', chrome.runtime.lastError);
+                } else {
+                    console.log('✅ Analysis request processed by background script:', response);
+                    
+                    // Send a confirmation back to the React component if needed
+                    window.postMessage({ 
+                        type: 'ANALYSIS_RESPONSE',
+                        success: true,
+                        data: response
+                    }, '*');
+                }
             }
-        });
+        );
     }
 });
 

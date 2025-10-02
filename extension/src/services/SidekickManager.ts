@@ -63,6 +63,12 @@ export class SidekickManager {
     this.currentConfig = modernConfig;
     this._initialized = true;
     
+    // Set as active but don't start automatic analysis
+    this.isSidekickActive = true;
+    
+    // Initialize context for the worker AI
+    ContextManager.initializeContext(modernConfig.workerAI, 'Sidekick');
+    
     // Important: We're explicitly configuring, but NOT starting automatic analysis
     // This prevents the loop issue after reload
     console.log('🤖 SidekickManager: Configuration set without starting automatic analysis');

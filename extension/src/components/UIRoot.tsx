@@ -415,8 +415,9 @@ const UIRoot: React.FC = () => {
     const sidekickManager = SidekickManager.getInstance();
     
     if (sidekickConfig && sidekickConfig.enabled) {
-      console.log('NexusMind: Starting SidekickManager with config:', sidekickConfig);
-      sidekickManager.start(sidekickConfig);
+      console.log('NexusMind: Configuring SidekickManager (manual mode only):', sidekickConfig);
+      // Use configure() instead of start() to prevent automatic analysis loops
+      sidekickManager.configure(sidekickConfig);
     } else {
       sidekickManager.stop();
     }
