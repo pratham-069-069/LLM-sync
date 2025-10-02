@@ -35,7 +35,15 @@ async function getAvailablePlatforms(): Promise<Platform[]> {
 }
 
 // Main message listener for the background script
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Handler for ping messages from content script
+  if (msg.type === 'PING_BACKGROUND') {
+    console.log('Background: Received ping from content script', sender.tab?.id);
+    // Respond immediately to confirm background script is ready
+    sendResponse({ status: 'ready' });
+    return true; // Indicates we'll send a response asynchronously
+  }
+  
   // Handler to get a list of currently open LLM tabs
   if (msg.type === 'GET_AVAILABLE_PLATFORMS') {
     getAvailablePlatforms().then(platforms => {

@@ -29,6 +29,7 @@ export class SidekickManager {
   private lastProcessTime: number = 0;
   private readonly PROCESS_THROTTLE_MS = 5000; // 5 seconds between processing attempts
   private processedMessageHashes: Set<string> = new Set(); // Track processed messages by content hash
+  private _initialized: boolean = false;
 
   private constructor() {
     this.platformName = getPlatformName();
@@ -37,8 +38,34 @@ export class SidekickManager {
   public static getInstance(): SidekickManager {
     if (!SidekickManager.instance) {
       SidekickManager.instance = new SidekickManager();
+      SidekickManager.instance.initialize();
     }
     return SidekickManager.instance;
+  }
+
+  public get isInitialized(): boolean {
+    return this._initialized;
+  }
+
+  public initialize(): void {
+    if (this._initialized) return;
+    
+    // Basic initialization - mark as initialized
+    this._initialized = true;
+    console.log('🤖 SidekickManager: Instance initialized');
+  }
+
+  public configure(config: SidekickConfig | LegacySidekickConfig): void {
+    console.log('🤖 SidekickManager: Configuring with:', config);
+    
+    // Handle legacy config migration
+    const modernConfig = this.migrateConfigIfNeeded(config);
+    this.currentConfig = modernConfig;
+    this._initialized = true;
+    
+    // Important: We're explicitly configuring, but NOT starting automatic analysis
+    // This prevents the loop issue after reload
+    console.log('🤖 SidekickManager: Configuration set without starting automatic analysis');
   }
 
   /**

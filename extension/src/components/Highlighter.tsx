@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Highlight } from '../types';
 import { useStorage } from '../hooks/useStorage';
 import { SidekickManager } from '../services/SidekickManager';
@@ -27,6 +27,19 @@ const Highlighter: React.FC<HighlighterProps> = ({ position, onSelectColor, onAn
     { enabled: false, workerAI: 'Claude', customPrompt: 'Analyze this response and provide critical feedback on accuracy, completeness, and potential improvements.', useMediator: true }
   );
 
+  // Configure SidekickManager when component mounts or config changes
+  useEffect(() => {
+    if (sidekickConfig && sidekickConfig.enabled) {
+      console.log('Configuring SidekickManager with:', sidekickConfig);
+      const sidekickManager = SidekickManager.getInstance();
+      
+      // Use the configure method to set up SidekickManager
+      sidekickManager.configure(sidekickConfig);
+      
+      console.log('SidekickManager configured successfully');
+    }
+  }, [sidekickConfig]);
+
   if (!position.top && !position.left) {
     return null;
   }
@@ -47,6 +60,8 @@ const Highlighter: React.FC<HighlighterProps> = ({ position, onSelectColor, onAn
     }
   }, []);
 
+
+
   const handleAnalyzeClick = async () => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
@@ -54,6 +69,14 @@ const Highlighter: React.FC<HighlighterProps> = ({ position, onSelectColor, onAn
     setIsAnalyzing(true);
     
     try {
+      // Store the selected text before we do anything else
+      const selectedText = selection.toString().trim();
+      if (!selectedText) {
+        console.warn('No text selected');
+        setIsAnalyzing(false);
+        return;
+      }
+      
       // Find the containing AI response element
       const range = selection.getRangeAt(0);
       const selectionNode = range.commonAncestorContainer;
@@ -83,25 +106,50 @@ const Highlighter: React.FC<HighlighterProps> = ({ position, onSelectColor, onAn
         currentNode = currentNode.parentNode;
       }
       
-      if (responseElement) {
-        // Use SidekickManager to analyze the response
-        const result = await SidekickManager.getInstance().analyzeMessage(responseElement);
-        if (result.success) {
-          console.log('✅ Analysis completed successfully');
-        } else {
-          console.error('Analysis failed:', result.error);
-        }
-      } else {
-        console.warn('Could not find AI response container for selected text');
+      if (!responseElement) {
+        // If we couldn't find the container, create a temporary element
+        console.warn('Could not find AI response container, using selection directly');
+        responseElement = document.createElement('div');
+        responseElement.textContent = selectedText;
+        // Don't append it to DOM, just use it as a container
       }
       
-      // Clear selection and call completion callback
-      selection.removeAllRanges();
-      onAnalyzeComplete?.();
+      // Get the SidekickManager instance and ensure it's configured
+      const sidekickManager = SidekickManager.getInstance();
+      
+      // Double-check that it's configured before proceeding
+      if (sidekickConfig && sidekickConfig.enabled) {
+        console.log('Re-configuring SidekickManager before analysis:', sidekickConfig);
+        sidekickManager.configure(sidekickConfig);
+      }
+      
+      console.log('About to call analyzeMessage with:', {
+        sidekickManager,
+        sidekickConfig,
+        isInitialized: sidekickManager.isInitialized
+      });
+      
+      try {
+        // Use SidekickManager to analyze the response
+        const result = await sidekickManager.analyzeMessage(responseElement);
+        console.log('Analysis result:', result);
+        
+        if (!result || !result.success) {
+          console.error('Analysis failed:', result?.error);
+        }
+      } catch (innerError) {
+        console.error('Analysis process failed:', innerError);
+      } finally {
+        // Clear the selection and call completion callback
+        window.getSelection()?.removeAllRanges();
+        onAnalyzeComplete?.();
+        setIsAnalyzing(false);
+      }
     } catch (error) {
       console.error('Failed to analyze text:', error);
-    } finally {
       setIsAnalyzing(false);
+      window.getSelection()?.removeAllRanges();
+      onAnalyzeComplete?.();
     }
   };
 
@@ -137,7 +185,7 @@ const Highlighter: React.FC<HighlighterProps> = ({ position, onSelectColor, onAn
             gap: '6px',
             justifyContent: 'center',
             backgroundColor: 'transparent',
-            backgroundImage: isAnalyzing 
+            backgroundImage: isAnalyzing
               ? 'none' 
               : 'linear-gradient(135deg, #8b5cf6 0%, #3b82f6 100%)',
             border: 'none',
