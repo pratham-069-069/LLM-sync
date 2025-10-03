@@ -10,6 +10,8 @@ export interface Highlight {
   id: string;
   /** The URL of the page where the highlight was made. */
   url: string;
+  /** The chat/conversation ID extracted from the URL. */
+  chatId?: string | null;
   /** The highlighted text content. */
   text: string;
   /** The color of the highlight. */
@@ -69,6 +71,8 @@ export interface Snippet {
   timestamp: number;
   /** The URL where the snippet was saved from. */
   url: string;
+  /** The chat/conversation ID extracted from the URL. */
+  chatId?: string | null;
   /** The AI platform where the snippet originated. */
   platform: string;
 }

@@ -1029,6 +1029,9 @@ export const highlightSelection = async (color: string): Promise<boolean> => {
     // Serialize the range for storage
     const serializedRange = serializeRange(range);
     
+    // Get conversation details (URL and chat ID)
+    const conversationDetails = getConversationDetails();
+    
     // Create highlight using advanced node iteration
     const success = await createAdvancedHighlight(range, color, highlightId);
     
@@ -1040,7 +1043,8 @@ export const highlightSelection = async (color: string): Promise<boolean> => {
           id: highlightId,
           text: selectedText,
           color: color,
-          url: window.location.href,
+          url: conversationDetails.url,
+          chatId: conversationDetails.chatId,
           platform: getPlatformName(),
           serializedRange: serializedRange,
           timestamp: Date.now()
@@ -1473,6 +1477,44 @@ export const getConversationSelectors = (platform: string): {
         assistantResponseSelectors: ['[data-role="assistant"]', '.assistant-message'],
       };
   }
+};
+
+/**
+ * Extracts conversation details (URL and chat ID) from the current page
+ * @returns Object containing the full URL and extracted chat ID
+ */
+export const getConversationDetails = (): { url: string; chatId: string | null } => {
+  const currentUrl = window.location.href;
+  const hostname = window.location.hostname;
+  
+  let chatId: string | null = null;
+  
+  if (hostname.includes('chatgpt.com')) {
+    // ChatGPT: chatgpt.com/c/{chatId}
+    const match = currentUrl.match(/chatgpt\.com\/c\/([^/?#]+)/);
+    chatId = match ? match[1] : null;
+  } else if (hostname.includes('claude.ai')) {
+    // Claude: claude.ai/chat/{chatId}
+    const match = currentUrl.match(/claude\.ai\/chat\/([^/?#]+)/);
+    chatId = match ? match[1] : null;
+  } else if (hostname.includes('grok.com') || hostname.includes('x.com')) {
+    // Grok: grok.com/c/{chatId} or x.com/i/grok/c/{chatId}
+    const match = currentUrl.match(/(?:grok\.com\/c\/|x\.com\/i\/grok\/c\/)([^/?#]+)/);
+    chatId = match ? match[1] : null;
+  } else if (hostname.includes('gemini.google.com')) {
+    // Gemini: gemini.google.com/app/{chatId}
+    const match = currentUrl.match(/gemini\.google\.com\/app\/([^/?#]+)/);
+    chatId = match ? match[1] : null;
+  } else if (hostname.includes('deepseek.com')) {
+    // DeepSeek: chat.deepseek.com/coder/{chatId}
+    const match = currentUrl.match(/deepseek\.com\/coder\/([^/?#]+)/);
+    chatId = match ? match[1] : null;
+  }
+  
+  return {
+    url: currentUrl,
+    chatId: chatId
+  };
 };
 
 /**

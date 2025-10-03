@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useStorage } from '../hooks/useStorage';
 import type { Snippet, Highlight } from '../types';
 import SidekickPanel from './SidekickPanel';
+import { getConversationDetails } from '../content-scripts/dom_utils';
 
 interface SidePanelProps {
   isOpen: boolean;
@@ -62,13 +63,17 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, onClose }) => {
         .replace(/\r/g, '\n')    // Normalize old Mac line breaks
         .trim();                 // Remove leading/trailing whitespace
       
+      // Get conversation details (URL and chat ID)
+      const conversationDetails = getConversationDetails();
+      
       // Create a new snippet
       const newSnippet: Snippet = {
         id: `snippet-${Date.now()}`,
         text: droppedText,
         timestamp: Date.now(),
-        url: window.location.href,
-        platform: getPlatformFromUrl(window.location.href)
+        url: conversationDetails.url,
+        chatId: conversationDetails.chatId,
+        platform: getPlatformFromUrl(conversationDetails.url)
       };
 
       // Add to snippets list
@@ -428,14 +433,32 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, onClose }) => {
                 <div style={{
                   fontSize: '14px',
                   lineHeight: '1.5',
-                  color: '#374151',
                   marginBottom: '8px',
                   wordBreak: 'break-word'
                 }}>
-                  {snippet.text.length > 200 
-                    ? snippet.text.substring(0, 200) + '...'
-                    : snippet.text
-                  }
+                  <a
+                    href={snippet.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      color: '#3b82f6',
+                      textDecoration: 'none',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = '#1d4ed8';
+                      e.currentTarget.style.textDecoration = 'underline';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = '#3b82f6';
+                      e.currentTarget.style.textDecoration = 'none';
+                    }}
+                  >
+                    {snippet.text.length > 200 
+                      ? snippet.text.substring(0, 200) + '...'
+                      : snippet.text
+                    }
+                  </a>
                 </div>
                 
                 <div style={{
@@ -516,8 +539,27 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, onClose }) => {
           {Array.isArray(highlights) && highlights.length > 0 ? (
             highlights.map((highlight: Highlight) => (
               <div key={highlight.id} style={{ marginBottom: '12px', padding: '12px', borderRadius: '8px', backgroundColor: getHighlightColor(highlight.color, 0.15), borderLeft: `4px solid ${getHighlightColor(highlight.color, 1)}` }}>
-                <div style={{ fontSize: '14px', lineHeight: '1.5', color: '#374151', marginBottom: '8px', wordBreak: 'break-word' }}>
-                  {highlight.text.length > 200 ? highlight.text.substring(0, 200) + '...' : highlight.text}
+                <div style={{ fontSize: '14px', lineHeight: '1.5', marginBottom: '8px', wordBreak: 'break-word' }}>
+                  <a 
+                    href={highlight.url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    style={{ 
+                      color: '#3b82f6', 
+                      textDecoration: 'none',
+                      display: 'block'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = '#1d4ed8';
+                      e.currentTarget.style.textDecoration = 'underline';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = '#3b82f6';
+                      e.currentTarget.style.textDecoration = 'none';
+                    }}
+                  >
+                    {highlight.text.length > 200 ? highlight.text.substring(0, 200) + '...' : highlight.text}
+                  </a>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#6b7280' }}>
                   <span>{getPlatformIcon(highlight.platform || 'Unknown')} {highlight.platform || 'Unknown'} • {new Date(highlight.timestamp).toLocaleDateString()}</span>
