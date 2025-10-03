@@ -34,6 +34,29 @@ async function getAvailablePlatforms(): Promise<Platform[]> {
   return platforms;
 }
 
+// Command listener for keyboard shortcuts
+chrome.commands.onCommand.addListener((command) => {
+  if (command === 'toggle-side-panel') {
+    console.log('Background: Received toggle-side-panel command');
+    
+    // Get the currently active tab
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0] && tabs[0].id) {
+        // Send message to the active tab to toggle the side panel
+        chrome.tabs.sendMessage(tabs[0].id, {
+          type: 'TOGGLE_SIDE_PANEL'
+        }, () => {
+          if (chrome.runtime.lastError) {
+            console.log('Side panel toggle command sent, but no content script responded');
+          } else {
+            console.log('Side panel toggle command sent successfully');
+          }
+        });
+      }
+    });
+  }
+});
+
 // Main message listener for the background script
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Handler for ping messages from content script

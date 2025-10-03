@@ -29,6 +29,15 @@
     "default_popup": "src/popup/index.html"
   },
   "options_page": "src/options/index.html",
+  "commands": {
+    "toggle-side-panel": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Toggle the NexusMind side panel"
+    }
+  },
   "content_scripts": [
     {
       "matches": [

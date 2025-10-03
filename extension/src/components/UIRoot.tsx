@@ -19,7 +19,7 @@ const UIRoot: React.FC = () => {
     'nexusmind-highlights',
     []
   );
-  const [sidePanelVisible, setSidePanelVisible] = useState(false);
+  const [sidePanelVisible, setSidePanelVisible] = useState(true);
   const [sidekickConfig] = useStorage<'nexusmind-sidekick-config'>(
     'nexusmind-sidekick-config',
     { enabled: false, workerAI: 'Claude', customPrompt: 'Analyze this response and provide critical feedback on accuracy, completeness, and potential improvements.', useMediator: true }
@@ -928,6 +928,25 @@ const UIRoot: React.FC = () => {
     return () => clearTimeout(timer);
   }, [highlights, features.inlineHighlighting, waitForPageContent, restoreSingleHighlight]);
 
+  // Listen for messages from background script (keyboard shortcuts)
+  useEffect(() => {
+    const messageListener = (message: any, _sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) => {
+      if (message.type === 'TOGGLE_SIDE_PANEL') {
+        console.log('UIRoot: Received toggle side panel message');
+        setSidePanelVisible(prev => !prev);
+        sendResponse({ success: true });
+      }
+    };
+
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      chrome.runtime.onMessage.addListener(messageListener);
+      
+      return () => {
+        chrome.runtime.onMessage.removeListener(messageListener);
+      };
+    }
+  }, []);
+
   return (
     <>
       {/* Conditional rendering based on platform capabilities */}
@@ -947,8 +966,8 @@ const UIRoot: React.FC = () => {
       {/* Side panel for snippet collection (especially useful for Gemini/DeepSeek) */}
       {features.sidePanelSnippets && (
         <SidePanel
-          isVisible={sidePanelVisible}
-          onToggle={() => setSidePanelVisible(!sidePanelVisible)}
+          isOpen={sidePanelVisible}
+          onClose={() => setSidePanelVisible(false)}
         />
       )}
 

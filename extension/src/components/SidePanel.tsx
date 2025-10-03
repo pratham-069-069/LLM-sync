@@ -4,15 +4,15 @@ import type { Snippet, Highlight } from '../types';
 import SidekickPanel from './SidekickPanel';
 
 interface SidePanelProps {
-  isVisible: boolean;
-  onToggle: () => void;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
 /**
  * Side panel component for drag-and-drop snippet collection
  * This is our primary feature for platforms like Gemini and DeepSeek
  */
-const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
+const SidePanel: React.FC<SidePanelProps> = ({ isOpen, onClose }) => {
   const [snippets, setSnippets] = useStorage<'nexusmind-snippets'>('nexusmind-snippets', []);
   const [highlights, setHighlights] = useStorage<'nexusmind-highlights'>('nexusmind-highlights', []);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -299,7 +299,7 @@ const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
     }
   }, [highlights, setHighlights]);
 
-  if (!isVisible) {
+  if (!isOpen) {
     return (
       <div className="nexusmind-side-panel-toggle" style={{
         position: 'fixed',
@@ -319,7 +319,7 @@ const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
         justifyContent: 'center',
         fontSize: '24px',
         transform: 'translateY(-50%)'
-      }} onClick={onToggle}>
+      }} onClick={onClose}>
         📋
       </div>
     );
@@ -344,7 +344,15 @@ const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
       <div style={{ padding: '16px', borderBottom: '1px solid #e5e7eb', backgroundColor: '#f9fafb' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#1f2937' }}>NexusMind</h3>
-          <button onClick={onToggle} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: '4px' }}>✕</button>
+          <button onClick={onClose} style={{ 
+            background: 'none', 
+            border: 'none', 
+            fontSize: '20px', 
+            cursor: 'pointer', 
+            padding: '4px',
+            color: '#9ca3af',
+            transition: 'color 0.2s ease'
+          }} onMouseEnter={(e) => e.currentTarget.style.color = '#ffffff'} onMouseLeave={(e) => e.currentTarget.style.color = '#9ca3af'}>✕</button>
         </div>
         <div style={{ display: 'flex', gap: '4px', backgroundColor: '#e5e7eb', borderRadius: '6px', padding: '2px' }}>
           <button onClick={() => setActiveTab('snippets')} style={{ flex: 1, padding: '8px 12px', borderRadius: '4px', border: 'none', fontSize: '14px', fontWeight: '500', cursor: 'pointer', backgroundColor: activeTab === 'snippets' ? 'white' : 'transparent', color: activeTab === 'snippets' ? '#1f2937' : '#6b7280', boxShadow: activeTab === 'snippets' ? '0 1px 2px rgba(0, 0, 0, 0.1)' : 'none' }}>
@@ -512,7 +520,7 @@ const SidePanel: React.FC<SidePanelProps> = ({ isVisible, onToggle }) => {
                   {highlight.text.length > 200 ? highlight.text.substring(0, 200) + '...' : highlight.text}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#6b7280' }}>
-                  <span>{highlight.color} • {new Date(highlight.timestamp).toLocaleDateString()}</span>
+                  <span>{getPlatformIcon(highlight.platform || 'Unknown')} {highlight.platform || 'Unknown'} • {new Date(highlight.timestamp).toLocaleDateString()}</span>
                   <div>
                     <button onClick={() => findSnippetInPage(highlight.text)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', marginRight: '8px', fontSize: '16px' }} title="Find highlight in page">🔍</button>
                     <button onClick={() => copySnippet(highlight.text)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', marginRight: '8px', fontSize: '16px' }} title="Copy to clipboard">📋</button>
@@ -546,6 +554,19 @@ const getPlatformFromUrl = (url: string): string => {
   if (url.includes('deepseek.com')) return 'DeepSeek';
   if (url.includes('grok.com')) return 'Grok';
   return 'Unknown';
+};
+
+// Helper function to get platform icon
+const getPlatformIcon = (platform: string): string => {
+  const iconMap: Record<string, string> = {
+    'ChatGPT': '🤖',
+    'Claude': '🧠',
+    'Gemini': '💎',
+    'DeepSeek': '🔍',
+    'Grok': '🐦',
+    'Unknown': '❓'
+  };
+  return iconMap[platform] || iconMap['Unknown'];
 };
 
 export default SidePanel;

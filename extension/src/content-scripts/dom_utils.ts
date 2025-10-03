@@ -1041,6 +1041,7 @@ export const highlightSelection = async (color: string): Promise<boolean> => {
           text: selectedText,
           color: color,
           url: window.location.href,
+          platform: getPlatformName(),
           serializedRange: serializedRange,
           timestamp: Date.now()
         }
