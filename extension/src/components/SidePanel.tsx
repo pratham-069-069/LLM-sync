@@ -15,16 +15,38 @@ interface SidePanelProps {
  */
 const SidePanel: React.FC<SidePanelProps> = ({ isOpen, onClose }) => {
   const [snippets, setSnippets] = useStorage<'nexusmind-snippets'>('nexusmind-snippets', []);
-  const [highlights, setHighlights] = useStorage<'nexusmind-highlights'>('nexusmind-highlights', []);
+  const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [activeTab, setActiveTab] = useState<'snippets' | 'highlights' | 'sidekick'>('snippets');
 
+  // Load all highlights from all platforms on component mount
   useEffect(() => {
+    const loadAllHighlights = () => {
+      chrome.runtime.sendMessage({
+        type: 'GET_ALL_HIGHLIGHTS'
+      }, (response) => {
+        if (response && response.success && response.highlights) {
+          console.log(`🎨 SidePanel: Loaded ${response.highlights.length} highlights from all platforms`);
+          setHighlights(response.highlights);
+        } else {
+          console.warn('🎨 SidePanel: Failed to load highlights:', response?.error);
+          setHighlights([]);
+        }
+      });
+    };
+
+    // Load highlights initially
+    loadAllHighlights();
+
+    // Listen for storage changes to refresh highlights
     const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
-      if (areaName === 'local' && changes['nexusmind-highlights']) {
-        const newHighlights = changes['nexusmind-highlights'].newValue;
-        console.log('🎨 NexusMind: Detected highlight changes in storage, updating SidePanel.');
-        setHighlights(newHighlights || []);
+      if (areaName === 'local') {
+        // Check if any URL-based key (which contains highlights) has changed
+        const hasHighlightChanges = Object.keys(changes).some(key => key.startsWith('http'));
+        if (hasHighlightChanges) {
+          console.log('🎨 SidePanel: Detected highlight changes in storage, reloading all highlights.');
+          loadAllHighlights();
+        }
       }
     };
 
@@ -33,7 +55,7 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, onClose }) => {
     return () => {
       chrome.storage.onChanged.removeListener(handleStorageChange);
     };
-  }, [setHighlights]);
+  }, []);
 
   // Handle drag and drop events
   const handleDragOver = useCallback((e: React.DragEvent) => {

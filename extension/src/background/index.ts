@@ -110,6 +110,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     
     return true; // Async response
   }
+
+  // Handler to get all highlights from all URLs
+  if (msg.type === 'GET_ALL_HIGHLIGHTS') {
+    console.log('Background: Getting all highlights from storage');
+    
+    chrome.storage.local.get(null, (result) => {
+      if (chrome.runtime.lastError) {
+        console.error('Error getting all highlights:', chrome.runtime.lastError);
+        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+      } else {
+        // Filter out non-highlight data and flatten highlights from all URLs
+        const allHighlights: any[] = [];
+        
+        // Look for keys that contain highlight arrays (URL-based keys)
+        for (const [key, value] of Object.entries(result)) {
+          // Skip non-URL keys (like settings, etc.)
+          if (key.startsWith('http') && Array.isArray(value)) {
+            allHighlights.push(...value);
+          }
+        }
+        
+        // Sort by timestamp (newest first)
+        allHighlights.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        
+        console.log(`Found ${allHighlights.length} total highlights across all platforms`);
+        sendResponse({ success: true, highlights: allHighlights });
+      }
+    });
+    
+    return true; // Async response
+  }
   
   // Handler to get a list of currently open LLM tabs
   if (msg.type === 'GET_AVAILABLE_PLATFORMS') {
