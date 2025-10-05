@@ -261,6 +261,7 @@ export const getResponseSelectors = (platform: string): string[] => {
       case 'Grok': 
         return [
           // Based on your DOM screenshot - target the actual content
+          'div.response-content-markdown',
           'div[class*="break-words"] p[dir="auto"]',
           'div[class*="prose"] p[dir="auto"]',
           'p[dir="auto"][style*="white-space: pre-wrap"]',
