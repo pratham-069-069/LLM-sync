@@ -1553,3 +1553,82 @@ export const getSupportedFeatures = (platform: string) => {
       };
   }
 };
+
+/**
+ * Removes a highlight from the page by unwrapping nexus-highlight elements
+ * @param highlight The highlight object containing serialized range data
+ * @returns Promise<boolean> Whether the removal was successful
+ */
+export const removeHighlightFromPage = async (highlight: any): Promise<boolean> => {
+  try {
+    console.log('🎨 Removing highlight from page:', highlight.id);
+    
+    // First, try to deserialize the range to find the highlight location
+    if (highlight.serializedRange) {
+      const range = deserializeRange(highlight.serializedRange);
+      if (range) {
+        // Find all nexus-highlight elements within the range
+        const container = range.commonAncestorContainer;
+        const elementsToRemove: Element[] = [];
+        
+        // If the container is an element, search within it
+        if (container instanceof Element) {
+          const highlightElements = container.querySelectorAll('nexus-highlight');
+          highlightElements.forEach(el => {
+            if (el.getAttribute('data-highlight-id') === highlight.id) {
+              elementsToRemove.push(el);
+            }
+          });
+        } else if (container.parentElement) {
+          // If container is a text node, search in its parent
+          const highlightElements = container.parentElement.querySelectorAll('nexus-highlight');
+          highlightElements.forEach(el => {
+            if (el.getAttribute('data-highlight-id') === highlight.id) {
+              elementsToRemove.push(el);
+            }
+          });
+        }
+        
+        // Unwrap the highlight elements
+        elementsToRemove.forEach(element => {
+          const parent = element.parentNode;
+          if (parent) {
+            // Move all child nodes to before the highlight element
+            while (element.firstChild) {
+              parent.insertBefore(element.firstChild, element);
+            }
+            // Remove the now-empty highlight element
+            parent.removeChild(element);
+          }
+        });
+        
+        console.log(`🎨 Successfully removed ${elementsToRemove.length} highlight elements`);
+        return elementsToRemove.length > 0;
+      }
+    }
+    
+    // Fallback: search the entire document for highlight elements with matching ID
+    const allHighlightElements = document.querySelectorAll(`nexus-highlight[data-highlight-id="${highlight.id}"]`);
+    let removedCount = 0;
+    
+    allHighlightElements.forEach(element => {
+      const parent = element.parentNode;
+      if (parent) {
+        // Move all child nodes to before the highlight element
+        while (element.firstChild) {
+          parent.insertBefore(element.firstChild, element);
+        }
+        // Remove the now-empty highlight element
+        parent.removeChild(element);
+        removedCount++;
+      }
+    });
+    
+    console.log(`🎨 Fallback removal: removed ${removedCount} highlight elements`);
+    return removedCount > 0;
+    
+  } catch (error) {
+    console.error('🎨 Error removing highlight from page:', error);
+    return false;
+  }
+};

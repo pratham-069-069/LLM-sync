@@ -141,6 +141,84 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     
     return true; // Async response
   }
+
+  // Handler to remove a highlight
+  if (msg.type === 'REMOVE_HIGHLIGHT') {
+    console.log('Background: Removing highlight', msg.highlightId);
+    
+    // Get all storage data to find the highlight
+    chrome.storage.local.get(null, (result) => {
+      if (chrome.runtime.lastError) {
+        console.error('Error getting storage for highlight removal:', chrome.runtime.lastError);
+        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+        return;
+      }
+      
+      let deletedHighlight: any = null;
+      let targetUrl: string | null = null;
+      
+      // Search through all URL-based keys to find the highlight
+      for (const [key, value] of Object.entries(result)) {
+        if (key.startsWith('http') && Array.isArray(value)) {
+          const highlightIndex = value.findIndex((h: any) => h.id === msg.highlightId);
+          if (highlightIndex !== -1) {
+            // Found the highlight, remove it
+            deletedHighlight = value[highlightIndex];
+            targetUrl = key;
+            value.splice(highlightIndex, 1);
+            
+            // Update storage with the modified array
+            chrome.storage.local.set({
+              [key]: value
+            }, () => {
+              if (chrome.runtime.lastError) {
+                console.error('Error updating storage after highlight removal:', chrome.runtime.lastError);
+                sendResponse({ success: false, error: chrome.runtime.lastError.message });
+                return;
+              }
+              
+              console.log('Highlight removed from storage successfully');
+              
+              // Now notify all tabs with matching URL to unhighlight the text
+              if (targetUrl) {
+                chrome.tabs.query({ url: targetUrl }, (tabs) => {
+                console.log(`Found ${tabs.length} tabs with URL ${targetUrl}`);
+                
+                tabs.forEach(tab => {
+                  if (tab.id) {
+                    chrome.tabs.sendMessage(tab.id, {
+                      type: 'UNHIGHLIGHT_TEXT',
+                      payload: deletedHighlight
+                    }, () => {
+                      // Ignore errors - tab might not have content script loaded
+                      if (chrome.runtime.lastError) {
+                        console.log(`Could not send unhighlight message to tab ${tab.id}:`, chrome.runtime.lastError.message);
+                      } else {
+                        console.log(`Sent unhighlight message to tab ${tab.id}`);
+                      }
+                    });
+                  }
+                });
+                
+                sendResponse({ success: true, deletedHighlight });
+                });
+              } else {
+                sendResponse({ success: false, error: 'Target URL not found' });
+              }
+            });
+            break;
+          }
+        }
+      }
+      
+      if (!deletedHighlight) {
+        console.warn('Highlight not found:', msg.highlightId);
+        sendResponse({ success: false, error: 'Highlight not found' });
+      }
+    });
+    
+    return true; // Async response
+  }
   
   // Handler to get a list of currently open LLM tabs
   if (msg.type === 'GET_AVAILABLE_PLATFORMS') {

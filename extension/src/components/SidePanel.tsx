@@ -313,17 +313,28 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, onClose }) => {
   }, []);
 
   const deleteHighlight = useCallback((id: string) => {
-    const currentHighlights = Array.isArray(highlights) ? highlights : [];
-    setHighlights(currentHighlights.filter((h: Highlight) => h.id !== id));
+    console.log('🎨 SidePanel: Deleting highlight', id);
     
-    const el = document.getElementById(id);
-    if (el) {
-      const parent = el.parentNode;
-      while (el.firstChild) {
-        parent?.insertBefore(el.firstChild, el);
+    // Send message to background script to remove highlight
+    chrome.runtime.sendMessage({
+      type: 'REMOVE_HIGHLIGHT',
+      highlightId: id
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('🎨 Error sending remove highlight message:', chrome.runtime.lastError);
+        return;
       }
-      parent?.removeChild(el);
-    }
+      
+      if (response && response.success) {
+        console.log('🎨 Highlight removed successfully from storage');
+        
+        // Update local state by removing the highlight from the array
+        const currentHighlights = Array.isArray(highlights) ? highlights : [];
+        setHighlights(currentHighlights.filter((h: Highlight) => h.id !== id));
+      } else {
+        console.error('🎨 Failed to remove highlight:', response?.error);
+      }
+    });
   }, [highlights, setHighlights]);
 
   if (!isOpen) {

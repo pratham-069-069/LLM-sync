@@ -14,7 +14,8 @@ import {
     setTextContent,
     clickSendButton,
     tryEnterKey,
-    readLatestResponse
+    readLatestResponse,
+    removeHighlightFromPage
 } from './dom_utils';
 
 console.log('🧩 Multi-platform content script loaded on', location.href);
@@ -500,6 +501,27 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
                 .then(response => sendResponse({ success: true, response: response }))
                 .catch(err => sendResponse({ success: false, error: err.message }));
             return true;
+        }
+        
+        else if (msg.type === 'UNHIGHLIGHT_TEXT') {
+            console.log('🎨 Content Script: Received UNHIGHLIGHT_TEXT message', msg.payload);
+            
+            if (msg.payload && msg.payload.id) {
+                removeHighlightFromPage(msg.payload)
+                    .then(success => {
+                        console.log(`🎨 Unhighlight operation ${success ? 'successful' : 'failed'}`);
+                        sendResponse({ success });
+                    })
+                    .catch(error => {
+                        console.error('🎨 Error during unhighlight operation:', error);
+                        sendResponse({ success: false, error: error.message });
+                    });
+            } else {
+                console.warn('🎨 Invalid unhighlight payload received');
+                sendResponse({ success: false, error: 'Invalid highlight data' });
+            }
+            
+            return true; // Async response
         }
     });
     console.log('🧩 Enhanced content script message listener registered successfully');
