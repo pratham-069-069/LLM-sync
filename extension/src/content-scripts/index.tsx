@@ -9,6 +9,7 @@ import {
     getSendButtonSelectors,
     getChatContainerSelector,
     getPromptContainerSelector,
+    getResponseSelectors,
     waitForElement,
     setTextContent,
     clickSendButton,
@@ -302,6 +303,87 @@ const initializeHighlights = async () => {
 
 // Initialize highlights after a short delay to let the page load
 setTimeout(initializeHighlights, 2000);
+
+// Add selection change listener for enhanced toolbar functionality
+document.addEventListener('selectionchange', () => {
+    const selection = window.getSelection();
+    
+    // Only proceed if we have a valid selection
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+        return;
+    }
+    
+    const range = selection.getRangeAt(0);
+    const selectedElement = range.commonAncestorContainer;
+    
+    // Import and use the response validation functions
+    const platform = getPlatformName();
+    const responseSelectors = getResponseSelectors(platform);
+    
+    // First, check if we're in a text input area - if so, don't show toolbar
+    let currentNode: Node | null = selectedElement instanceof Element ? selectedElement : selectedElement.parentElement;
+    let isInTextInput = false;
+    
+    // Check if we're within any input elements
+    while (currentNode && currentNode !== document.body) {
+        if (currentNode instanceof HTMLElement) {
+            const tagName = currentNode.tagName.toLowerCase();
+            const isEditable = currentNode.isContentEditable;
+            const hasTextInputRole = currentNode.getAttribute('role') === 'textbox';
+            
+            if (tagName === 'input' || tagName === 'textarea' || isEditable || hasTextInputRole) {
+                isInTextInput = true;
+                break;
+            }
+        }
+        currentNode = currentNode.parentNode;
+    }
+    
+    // Don't show toolbar if we're in a text input area
+    if (isInTextInput) {
+        console.log('⚠️ Selection is within text input area, skipping toolbar');
+        return;
+    }
+    
+    // Now check if the selected element is within a valid AI response container
+    let isWithinResponse = false;
+    currentNode = selectedElement instanceof Element ? selectedElement : selectedElement.parentElement;
+    
+    while (currentNode && currentNode !== document.body) {
+        if (currentNode instanceof HTMLElement) {
+            // Check if the element matches any of the response selectors
+            for (const selector of responseSelectors) {
+                try {
+                    if (currentNode.matches(selector) || currentNode.closest(selector)) {
+                        isWithinResponse = true;
+                        break;
+                    }
+                } catch (e) {
+                    console.log(`Invalid response selector: ${selector}`, e);
+                }
+            }
+            if (isWithinResponse) break;
+        }
+        currentNode = currentNode.parentNode;
+    }
+    
+    // Only send SHOW_TOOLBAR message if selection is within a valid response area
+    if (isWithinResponse) {
+        console.log('✅ Selection detected within AI response area, sending SHOW_TOOLBAR message');
+        
+        // Send message to show toolbar (this would be consumed by UIRoot or another component)
+        window.postMessage({
+            type: 'SHOW_TOOLBAR',
+            selection: {
+                text: selection.toString(),
+                rect: range.getBoundingClientRect(),
+                platform: platform
+            }
+        }, '*');
+    } else {
+        console.log('⚠️ Selection detected but not within AI response area, skipping toolbar');
+    }
+});
 
 // Add window message listener for messages from React components
 window.addEventListener('message', (event) => {

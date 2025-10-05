@@ -947,6 +947,44 @@ const UIRoot: React.FC = () => {
     }
   }, []);
 
+  // Listen for SHOW_TOOLBAR messages from the content script's selection change handler
+  useEffect(() => {
+    const windowMessageListener = (event: MessageEvent) => {
+      // Only process messages from the same window
+      if (event.source !== window || !event.data || typeof event.data !== 'object') return;
+      
+      if (event.data.type === 'SHOW_TOOLBAR' && event.data.selection) {
+        console.log('UIRoot: Received SHOW_TOOLBAR message from selection change handler');
+        
+        // Only show toolbar if inline highlighting is supported
+        if (!features.inlineHighlighting) return;
+        
+        const { rect } = event.data.selection;
+        
+        // Set up the selection object
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed) {
+          setCurrentSelection(selection);
+          activeSelectionRef.current = selection;
+          
+          // Position the highlighter toolbar
+          setHighlighter({
+            top: window.scrollY + rect.top - 40,
+            left: window.scrollX + rect.left + rect.width / 2,
+          });
+          
+          console.log('✅ Highlighter toolbar positioned and displayed');
+        }
+      }
+    };
+
+    window.addEventListener('message', windowMessageListener);
+    
+    return () => {
+      window.removeEventListener('message', windowMessageListener);
+    };
+  }, [features.inlineHighlighting]);
+
   return (
     <>
       {/* Conditional rendering based on platform capabilities */}
