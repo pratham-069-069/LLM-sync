@@ -38,6 +38,26 @@ const UIRoot: React.FC = () => {
   
   console.log(`NexusMind: Platform detected as ${platform}, features:`, features);
 
+  // Listen for toggle side panel message from background script
+  useEffect(() => {
+    const handleMessage = (
+      message: any,
+      _sender: chrome.runtime.MessageSender,
+      sendResponse: (response?: any) => void
+    ) => {
+      if (message.type === 'TOGGLE_SIDE_PANEL') {
+        console.log('UIRoot: Received TOGGLE_SIDE_PANEL message');
+        setSidePanelVisible((prev) => !prev);
+        sendResponse({ success: true });
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(handleMessage);
+    return () => {
+      chrome.runtime.onMessage.removeListener(handleMessage);
+    };
+  }, []);
+
   /**
    * Checks if a DOM node is within an AI response container.
    */
@@ -928,25 +948,6 @@ const UIRoot: React.FC = () => {
     return () => clearTimeout(timer);
   }, [highlights, features.inlineHighlighting, waitForPageContent, restoreSingleHighlight]);
 
-  // Listen for messages from background script (keyboard shortcuts)
-  useEffect(() => {
-    const messageListener = (message: any, _sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) => {
-      if (message.type === 'TOGGLE_SIDE_PANEL') {
-        console.log('UIRoot: Received toggle side panel message');
-        setSidePanelVisible(prev => !prev);
-        sendResponse({ success: true });
-      }
-    };
-
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.onMessage.addListener(messageListener);
-      
-      return () => {
-        chrome.runtime.onMessage.removeListener(messageListener);
-      };
-    }
-  }, []);
-
   // Listen for SHOW_TOOLBAR messages from the content script's selection change handler
   useEffect(() => {
     const windowMessageListener = (event: MessageEvent) => {
@@ -1005,7 +1006,7 @@ const UIRoot: React.FC = () => {
       {features.sidePanelSnippets && (
         <SidePanel
           isOpen={sidePanelVisible}
-          onClose={() => setSidePanelVisible(false)}
+          onClose={() => setSidePanelVisible(prev => !prev)}
         />
       )}
 

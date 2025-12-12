@@ -337,47 +337,69 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, onClose }) => {
     });
   }, [highlights, setHighlights]);
 
+  // Show floating toggle button when panel is closed
   if (!isOpen) {
     return (
-      <div className="nexusmind-side-panel-toggle" style={{
-        position: 'fixed',
-        top: '50%',
-        right: '20px',
-        zIndex: 10000,
-        backgroundColor: '#4F46E5',
-        color: 'white',
-        border: 'none',
-        borderRadius: '50%',
-        width: '56px',
-        height: '56px',
-        cursor: 'pointer',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: '24px',
-        transform: 'translateY(-50%)'
-      }} onClick={onClose}>
-        📋
+      <div 
+        className="nexusmind-side-panel-toggle" 
+        style={{
+          position: 'fixed',
+          top: '50%',
+          right: '20px',
+          zIndex: 10000,
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          color: 'white',
+          border: 'none',
+          borderRadius: '50%',
+          width: '56px',
+          height: '56px',
+          cursor: 'pointer',
+          boxShadow: '0 4px 16px rgba(102, 126, 234, 0.4)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '24px',
+          transform: 'translateY(-50%)',
+          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+        }} 
+        onClick={() => {
+          // This should open the panel, so we call onClose which toggles it
+          onClose();
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'translateY(-50%) scale(1.1)';
+          e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'translateY(-50%) scale(1)';
+          e.currentTarget.style.boxShadow = '0 4px 16px rgba(102, 126, 234, 0.4)';
+        }}
+        title="Open NexusMind Panel (Ctrl+Shift+S)"
+      >
+        🧠
       </div>
     );
   }
 
   return (
-    <div className="nexusmind-side-panel" style={{
-      position: 'fixed',
-      top: '0',
-      right: '0',
-      width: '400px',
-      height: '100vh',
-      backgroundColor: 'white',
-      borderLeft: '1px solid #e5e7eb',
-      zIndex: 9999,
-      display: 'flex',
-      flexDirection: 'column',
-      boxShadow: '-4px 0 12px rgba(0, 0, 0, 0.1)',
-      fontFamily: 'system-ui, -apple-system, sans-serif'
-    }}>
+    <div 
+      className="nexusmind-side-panel" 
+      style={{
+        position: 'fixed',
+        top: '0',
+        right: isOpen ? '0' : '-420px',
+        width: '400px',
+        height: '100vh',
+        backgroundColor: 'white',
+        borderLeft: '1px solid #e5e7eb',
+        zIndex: 9999,
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '-4px 0 12px rgba(0, 0, 0, 0.1)',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        transition: 'right 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease'
+      }}
+    >
       {/* Header */}
       <div style={{ padding: '16px', borderBottom: '1px solid #e5e7eb', backgroundColor: '#f9fafb' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
