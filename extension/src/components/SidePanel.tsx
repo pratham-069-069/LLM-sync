@@ -153,38 +153,48 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, onClose }) => {
           
           if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
-            const rect = range.getBoundingClientRect();
-            
-            console.log('📜 Scrolling to selection at:', 
-              `top=${rect.top}, left=${rect.left}, height=${rect.height}, width=${rect.width}`);
-            
-            // Scroll the selection into view
             const parentNode = range.startContainer.parentElement;
+            
             if (parentNode) {
+              console.log('📜 Scrolling to selection');
+              
+              // Use scrollIntoView with 'center' positioning - this is reliable
               parentNode.scrollIntoView({
                 behavior: 'smooth',
-                block: 'center'
+                block: 'center',
+                inline: 'nearest'
               });
               
-              // Also use window.scrollTo as a backup
-              window.scrollTo({
-                top: window.scrollY + rect.top - (window.innerHeight / 3),
-                behavior: 'smooth'
-              });
-              
-              console.log('📜 Scroll commands executed');
+              console.log('📜 Scroll command executed');
             } else {
               console.log('⚠️ Could not find parent element to scroll to');
             }
             
-            // Add our custom flash highlight
-            setTimeout(() => flashSelectedText(), 500);
+            // Add flash highlight after scrolling completes
+            setTimeout(() => flashSelectedText(), 800);
             showFoundMessage();
           } else {
             // Try again if selection is empty
             console.log('🔍 Retrying search...');
             (window as any).find(searchText, false, false, true);
-            flashSelectedText();
+            
+            // Use a simpler scroll approach for retry
+            setTimeout(() => {
+              const retrySelection = window.getSelection();
+              if (retrySelection && !retrySelection.isCollapsed && retrySelection.rangeCount > 0) {
+                const retryRange = retrySelection.getRangeAt(0);
+                const retryParent = retryRange.startContainer.parentElement;
+                if (retryParent) {
+                  retryParent.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center',
+                    inline: 'nearest'
+                  });
+                }
+                setTimeout(() => flashSelectedText(), 800);
+              }
+            }, 300);
+            
             showFoundMessage();
           }
         }, 300);
