@@ -35,7 +35,8 @@ export interface MediationResult {
 
 class MediatorService {
   private readonly openRouterUrl = 'https://openrouter.ai/api/v1/chat/completions';
-  private readonly mediatorModel = 'google/gemini-2.0-flash-exp:free';
+  private readonly mediatorModel = 'google/gemini-2.5-flash';
+  private readonly googleModel = 'gemini-flash-latest';
 
   /**
    * Generate an optimized prompt for a Worker AI using the user's custom instruction and conversation context
@@ -174,7 +175,7 @@ Guidelines:
 
 Return only the enhanced prompt, nothing else.`;
 
-      const enhancedPrompt = await this.callMediatorAI(systemPrompt, userContent);
+      const enhancedPrompt = await this.callGeminiPromptEnhancer(systemPrompt, userContent);
       
       return {
         success: true,
@@ -194,6 +195,31 @@ Return only the enhanced prompt, nothing else.`;
         }
       };
     }
+  }
+
+  /**
+   * Dedicated Gemini path for prompt enhancement.
+   * This intentionally uses only the Gemini API key and does not fallback to OpenRouter.
+   */
+  private async callGeminiPromptEnhancer(systemPrompt: string, userContent: string): Promise<string> {
+    const apiKey = GEMINI_API_KEY;
+
+    if (!apiKey || typeof apiKey !== 'string' || apiKey === 'missing-gemini-key') {
+      throw new Error('Invalid or missing Gemini API key');
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+
+    const response = await ai.models.generateContent({
+      model: this.googleModel,
+      contents: `${systemPrompt}\n\n${userContent}`,
+    });
+
+    if (!response.text) {
+      throw new Error('No response text from Gemini');
+    }
+
+    return response.text.trim();
   }
 
   /**
@@ -349,7 +375,7 @@ Consider the task type, complexity, and required skills.`;
       const combinedPrompt = `${systemPrompt}\n\nUser Request:\n${userContent}`;
 
       const response = await model({
-        model: "gemini-2.0-flash-exp",
+        model: this.googleModel,
         contents: combinedPrompt,
       });
 
