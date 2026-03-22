@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useStorage } from '../hooks/useStorage';
 import type { SidekickConfig } from '../types';
+import MediatorService from '../services/MediatorService';
 
 const defaultConfig: SidekickConfig = {
   enabled: false,
@@ -22,6 +23,89 @@ const SidekickPanel: React.FC = () => {
     'nexusmind-sidekick-config',
     defaultConfig
   );
+
+  const [groupChatPrompt, setGroupChatPrompt] = useState('');
+  const [gcSelectedPlatforms, setGcSelectedPlatforms] = useState<string[]>([]);
+  const [gcIterations, setGcIterations] = useState(1);
+  const [isGroupChatting, setIsGroupChatting] = useState(false);
+  const [gcLog, setGcLog] = useState<{platform: string, text: string}[]>([]);
+  const [gcConclusion, setGcConclusion] = useState('');
+
+  const handleTogglePlatform = (platform: string) => {
+    setGcSelectedPlatforms(prev => 
+      prev.includes(platform) ? prev.filter(p => p !== platform) : [...prev, platform]
+    );
+  };
+
+  const runGroupChat = async () => {
+    if (!groupChatPrompt.trim() || gcSelectedPlatforms.length === 0 || gcIterations < 1) return;
+    
+    setIsGroupChatting(true);
+    setGcLog([]);
+    setGcConclusion('');
+    
+    let currentLog: {platform: string, text: string}[] = [];
+    
+    // Check available platforms first
+    const availableResp = await new Promise<any>((resolve) => chrome.runtime.sendMessage({ type: 'GET_AVAILABLE_PLATFORMS' }, resolve));
+    const availableNames = availableResp?.platforms?.map((p: any) => p.platform.toLowerCase()) || [];
+    
+    // Validate selected platforms
+    for (const p of gcSelectedPlatforms) {
+      if (!availableNames.includes(p.toLowerCase())) {
+        alert(`Platform ${p} is not open in a tab.`);
+        setIsGroupChatting(false);
+        return;
+      }
+    }
+    
+    try {
+      for (let i = 0; i < gcIterations; i++) {
+        for (const platform of gcSelectedPlatforms) {
+          let promptToSend = '';
+          if (currentLog.length === 0) {
+            promptToSend = `User asked: "${groupChatPrompt}". Please start the discussion.`;
+          } else {
+            const transcript = currentLog.map(l => `${l.platform}: ${l.text}`).join('\n\n');
+            promptToSend = `User originally asked: "${groupChatPrompt}".\n\nHere is the discussion so far:\n${transcript}\n\nPlease add your perspective or continue the discussion.`;
+          }
+          
+          const response = await new Promise<any>((resolve) => {
+            chrome.runtime.sendMessage({
+              type: 'EXECUTE_SIDEKICK_TASK',
+              platform: platform,
+              prompt: promptToSend,
+              taskId: `groupchat_${Date.now()}`
+            }, resolve);
+          });
+          
+          if (response && response.success) {
+            const entry = { platform, text: response.analysis };
+            currentLog = [...currentLog, entry];
+            setGcLog(currentLog);
+          } else {
+            throw new Error(`Failed to get response from ${platform}: ${response?.error}`);
+          }
+        }
+      }
+      
+      // Get conclusion from Gemini
+      const transcriptStr = currentLog.map(l => `${l.platform}: ${l.text}`).join('\n\n');
+      const conclusionResult = await MediatorService.generateGroupChatConclusion(groupChatPrompt, transcriptStr);
+      
+      if (conclusionResult.success && conclusionResult.result) {
+        setGcConclusion(conclusionResult.result);
+      } else {
+        setGcConclusion(`Error generating conclusion: ${conclusionResult.error}`);
+      }
+      
+    } catch (error) {
+       console.error("Group chat error:", error);
+       alert("Error during group chat: " + error);
+    } finally {
+      setIsGroupChatting(false);
+    }
+  };
 
   // Ensure we have a complete config object, even if storage is empty
   // Handle migration from old 'platform' field to new 'workerAI' field
@@ -49,7 +133,7 @@ const SidekickPanel: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '16px', fontFamily: 'system-ui, sans-serif', color: '#374151' }}>
+    <div style={{ flex: 1, overflowY: 'auto', padding: '16px', fontFamily: 'system-ui, sans-serif', color: '#374151' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>AI Sidekick</h4>
         <button
@@ -216,6 +300,107 @@ const SidekickPanel: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* --- NEW: Group Chat Feature --- */}
+      <hr style={{ margin: '24px 0', borderColor: '#e5e7eb' }} />
+      <div style={{ marginBottom: '16px' }}>
+        <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '600' }}>🗣️ LLM Group Chat</h4>
+        <p style={{ fontSize: '12px', color: '#6b7280', margin: '0 0 12px 0' }}>
+          Start a multi-turn discussion between selected AIs, followed by a final conclusion from Gemini.
+        </p>
+        
+        <div style={{ marginBottom: '12px' }}>
+          <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px' }}>Topic / Prompt</label>
+          <textarea
+            value={groupChatPrompt}
+            onChange={(e) => setGroupChatPrompt(e.target.value)}
+            placeholder="e.g., What are the ethical implications of AGI?"
+            rows={3}
+            style={{ 
+              width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #d1d5db',
+              fontSize: '13px', fontFamily: 'system-ui, sans-serif', resize: 'vertical'
+            }}
+            disabled={isGroupChatting}
+          />
+        </div>
+
+        <div style={{ marginBottom: '12px' }}>
+          <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px' }}>Select Participants</label>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {['ChatGPT', 'Claude', 'Grok'].map(p => (
+              <button
+                key={p}
+                onClick={() => handleTogglePlatform(p)}
+                disabled={isGroupChatting}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '16px',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  border: gcSelectedPlatforms.includes(p) ? '2px solid #3b82f6' : '1px solid #d1d5db',
+                  backgroundColor: gcSelectedPlatforms.includes(p) ? '#eff6ff' : '#ffffff',
+                  color: gcSelectedPlatforms.includes(p) ? '#1d4ed8' : '#374151',
+                  cursor: isGroupChatting ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px' }}>Iterations ({gcIterations})</label>
+          <input 
+            type="range" 
+            min="1" max="5" 
+            value={gcIterations}
+            onChange={(e) => setGcIterations(parseInt(e.target.value))}
+            disabled={isGroupChatting}
+            style={{ width: '100%' }}
+          />
+        </div>
+
+        <button
+          onClick={runGroupChat}
+          disabled={isGroupChatting || !groupChatPrompt.trim() || gcSelectedPlatforms.length === 0}
+          style={{
+            width: '100%',
+            padding: '10px',
+            backgroundColor: isGroupChatting || !groupChatPrompt.trim() || gcSelectedPlatforms.length === 0 ? '#9ca3af' : '#8b5cf6',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            fontWeight: '600',
+            cursor: isGroupChatting || !groupChatPrompt.trim() || gcSelectedPlatforms.length === 0 ? 'not-allowed' : 'pointer'
+          }}
+        >
+          {isGroupChatting ? 'Discussion in progress...' : 'Start Group Chat'}
+        </button>
+
+        {/* Display Log */}
+        {gcLog.length > 0 && (
+          <div style={{ marginTop: '16px', maxHeight: '300px', overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '8px', backgroundColor: '#f9fafb' }}>
+            <h5 style={{ margin: '0 0 8px 0', fontSize: '13px' }}>Discussion Log:</h5>
+            {gcLog.map((log, idx) => (
+              <div key={idx} style={{ marginBottom: '8px', fontSize: '12px' }}>
+                <strong style={{ color: '#4f46e5' }}>{log.platform}:</strong>
+                <div style={{ whiteSpace: 'pre-wrap', marginTop: '2px', color: '#374151' }}>{log.text}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Display Conclusion */}
+        {gcConclusion && (
+          <div style={{ marginTop: '16px', padding: '12px', backgroundColor: '#ecfdf5', borderRadius: '8px', border: '1px solid #a7f3d0' }}>
+            <h5 style={{ margin: '0 0 8px 0', fontSize: '14px', color: '#065f46' }}>✨ Gemini Conclusion</h5>
+            <div style={{ fontSize: '13px', color: '#064e3b', whiteSpace: 'pre-wrap' }}>
+              {gcConclusion}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

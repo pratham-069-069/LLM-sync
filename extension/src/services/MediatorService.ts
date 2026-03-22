@@ -223,6 +223,46 @@ Return only the enhanced prompt, nothing else.`;
   }
 
   /**
+   * Generate a conclusion for a group chat between AIs
+   */
+  public async generateGroupChatConclusion(
+    userPrompt: string,
+    chatLog: string
+  ): Promise<MediationResult> {
+    console.log('🧠 MediatorService: Generating group chat conclusion...');
+    
+    const startTime = Date.now();
+    
+    try {
+      const systemPrompt = `You are a concluding assistant for an AI group chat.
+The user asked: "${userPrompt}"
+The AIs had a discussion. Please provide a final conclusion summarizing the best points and giving a definitive answer to the user.`;
+
+      const userContent = `Here is the discussion transcript:\n\n${chatLog}\n\nPlease provide the final conclusion.`;
+
+      const conclusion = await this.callMediatorAI(systemPrompt, userContent);
+      
+      return {
+        success: true,
+        result: conclusion,
+        metadata: {
+          processingTime: Date.now() - startTime,
+          confidence: 0.9
+        }
+      };
+    } catch (error) {
+      console.error('🧠 MediatorService: Error generating conclusion:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        metadata: {
+          processingTime: Date.now() - startTime
+        }
+      };
+    }
+  }
+
+  /**
    * Make intelligent routing decisions about which Worker AI to use
    */
   public async suggestOptimalWorkerAI(
